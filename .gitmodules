@@ -1,0 +1,9 @@
+[submodule "ice_engine/ice_engine"]
+	path = ice_engine/ice_engine
+	url = https://github.com/icebreakersentertainment/ice_engine.git
+[submodule "glew/glew"]
+	path = glew/glew
+	url = https://github.com/icebreakersentertainment/glew.git
+[submodule "sdl/SDL"]
+	path = sdl/SDL
+	url = https://github.com/icebreakersentertainment/SDL.git
