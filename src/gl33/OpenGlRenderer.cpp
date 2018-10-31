@@ -203,7 +203,7 @@ void OpenGlRenderer::initializeOpenGlShaderPrograms()
 	lightingShaderProgramHandle_ = createShaderProgram(lightingVertexShaderHandle, lightingFragmentShaderHandle);
 	
 	std::string depthDebugVertexShader = R"(
-#version 440 core
+#version 330 core
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec2 aTexCoords;
 
@@ -218,7 +218,7 @@ void main()
 
 	// Source: https://learnopengl.com/code_viewer_gh.php?code=src/5.advanced_lighting/3.1.2.shadow_mapping_base/3.1.2.shadow_mapping_depth.fs
 	std::string depthDebugFragmentShader = R"(
-#version 440 core
+#version 330 core
 out vec4 FragColor;
 
 in vec2 TexCoords;
@@ -763,7 +763,7 @@ void OpenGlRenderer::renderLines(const std::vector<std::tuple<glm::vec3, glm::ve
 	
 	for (const auto& line : lineData)
 	{
-		lineData2.push_back( {std::get<0>(line), std::get<1>(line), std::get<2>(line), std::get<2>(line)} );
+		lineData2.push_back( std::tuple<glm::vec3, glm::vec3, glm::vec3, glm::vec3>(std::get<0>(line), std::get<1>(line), std::get<2>(line), std::get<2>(line)) );
 	}
 	
 	auto size = lineData2.size() * (4 * sizeof(glm::vec3));
