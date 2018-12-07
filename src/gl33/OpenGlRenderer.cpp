@@ -89,7 +89,7 @@ OpenGlRenderer::~OpenGlRenderer()
 		SDL_GL_DeleteContext(openglContext_);
 		openglContext_ = nullptr;
 	}
-	
+
 	if (sdlWindow_)
 	{
 		SDL_SetWindowFullscreen( sdlWindow_, 0 );
@@ -104,45 +104,45 @@ void OpenGlRenderer::initialize()
 {
 	width_ = properties_->getIntValue(std::string("window.width"), 1024);
 	height_ = properties_->getIntValue(std::string("window.height"), 768);
-	
+
 	LOG_INFO(logger_, std::string("Width and height set to ") + std::to_string(width_) + " x " + std::to_string(height_));
-	
+
 	if (SDL_Init(SDL_INIT_VIDEO) != 0)
 	{
 		auto message = std::string("Unable to initialize SDL: ") + SDL_GetError();
 		throw std::runtime_error(message);
 	}
-	
+
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 
 	auto windowTitle = properties_->getStringValue("window.title", "Ice Engine");
-	
+
 	uint32 flags = SDL_WINDOW_OPENGL;
-	
+
 	if (properties_->getBoolValue("window.fullscreen", false)) flags |= SDL_WINDOW_FULLSCREEN;
 	if (properties_->getBoolValue("window.resizable", false)) flags |= SDL_WINDOW_RESIZABLE;
 	if (properties_->getBoolValue("window.maximized", false)) flags |= SDL_WINDOW_MAXIMIZED;
-	
+
 	sdlWindow_ = SDL_CreateWindow(windowTitle.c_str(), 50, 50, width_, height_, flags);
 
 	if (sdlWindow_ == nullptr) throw std::runtime_error(std::string("Unable to create window: ") + SDL_GetError());
 
 	openglContext_ = SDL_GL_CreateContext(sdlWindow_);
-	
+
 	if (openglContext_ == nullptr) throw std::runtime_error(std::string("Unable to create OpenGL context: ") + SDL_GetError());
-	
+
 	const bool vsync = properties_->getBoolValue("window.vsync", false);
 	SDL_GL_SetSwapInterval(vsync ? 1 : 0);
-	
+
 	glewExperimental = GL_TRUE; // Needed in core profile
-	
+
 	if (glewInit() != GLEW_OK) throw std::runtime_error("Failed to initialize GLEW.");
-	
+
 	SDL_GL_GetDrawableSize(sdlWindow_, reinterpret_cast<int*>(&width_), reinterpret_cast<int*>(&height_));
-	
+
 	// Set up the model, view, and projection matrices
 	//model_ = glm::scale(glm::mat4(1.0f), glm::vec3(0.5f));
 	model_ = glm::mat4(1.0f);
@@ -150,7 +150,7 @@ void OpenGlRenderer::initialize()
 	setViewport(width_, height_);
 
 	initializeOpenGlShaderPrograms();
-	
+
 	// TEST lights
 	// Source: https://github.com/JoeyDeVries/LearnOpenGL/blob/master/src/5.advanced_lighting/8.1.deferred_shading/deferred_shading.cpp
 	srand(13);
@@ -167,7 +167,7 @@ void OpenGlRenderer::initialize()
 		float bColor = ((rand() % 100) / 200.0f) + 0.5; // between 0.5 and 1.0
 		lightColors_.push_back(glm::vec3(rColor, gColor, bColor));
 	}
-	
+
 	initializeOpenGlBuffers();
 }
 
@@ -175,33 +175,33 @@ void OpenGlRenderer::initializeOpenGlShaderPrograms()
 {
 	auto lineVertexShaderHandle = createVertexShader(loadShaderContents("line.vert"));
 	auto lineFragmentShaderHandle = createFragmentShader(loadShaderContents("line.frag"));
-	
+
 	lineShaderProgramHandle_ = createShaderProgram(lineVertexShaderHandle, lineFragmentShaderHandle);
-	
+
 	// Shadow mapping shader program
 	auto shadowMappingVertexShaderHandle = createVertexShader(loadShaderContents("shadow_mapping.vert"));
 	auto shadowMappingFragmentShaderHandle = createFragmentShader(loadShaderContents("shadow_mapping.frag"));
-	
+
 	shadowMappingShaderProgramHandle_ = createShaderProgram(shadowMappingVertexShaderHandle, shadowMappingFragmentShaderHandle);
-	
+
 	// deferred lighting geometry pass shader program
 	auto deferredLightingGeometryPassVertexShaderHandle = createVertexShader(loadShaderContents("deferred_lighting_geometry_pass.vert"));
 	auto deferredLightingGeometryPassFragmentShaderHandle = createFragmentShader(loadShaderContents("deferred_lighting_geometry_pass.frag"));
-	
+
 	deferredLightingGeometryPassProgramHandle_ = createShaderProgram(deferredLightingGeometryPassVertexShaderHandle, deferredLightingGeometryPassFragmentShaderHandle);
-	
+
 	// deferred lighting terrain geometry pass shader program
 	auto deferredLightingTerrainGeometryPassVertexShaderHandle = createVertexShader(loadShaderContents("deferred_lighting_terrain_geometry_pass.vert"));
 	auto deferredLightingTerrainGeometryPassFragmentShaderHandle = createFragmentShader(loadShaderContents("deferred_lighting_terrain_geometry_pass.frag"));
-	
+
 	deferredLightingTerrainGeometryPassProgramHandle_ = createShaderProgram(deferredLightingTerrainGeometryPassVertexShaderHandle, deferredLightingTerrainGeometryPassFragmentShaderHandle);
-	
+
 	// Lighting shader program
 	auto lightingVertexShaderHandle = createVertexShader(loadShaderContents("lighting.vert"));
 	auto lightingFragmentShaderHandle = createFragmentShader(loadShaderContents("lighting.frag"));
-	
+
 	lightingShaderProgramHandle_ = createShaderProgram(lightingVertexShaderHandle, lightingFragmentShaderHandle);
-	
+
 	std::string depthDebugVertexShader = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
@@ -230,12 +230,12 @@ uniform float far_plane;
 // required when using a perspective projection matrix
 float LinearizeDepth(const float depth)
 {
-    float z = depth * 2.0 - 1.0; // Back to NDC 
-    return (2.0 * near_plane * far_plane) / (far_plane + near_plane - z * (far_plane - near_plane));	
+    float z = depth * 2.0 - 1.0; // Back to NDC
+    return (2.0 * near_plane * far_plane) / (far_plane + near_plane - z * (far_plane - near_plane));
 }
 
 void main()
-{             
+{
     float depthValue = texture(depthMap, TexCoords).r;
     // FragColor = vec4(vec3(LinearizeDepth(depthValue) / far_plane), 1.0); // perspective
     FragColor = vec4(vec3(depthValue), 1.0); // orthographic
@@ -244,7 +244,7 @@ void main()
 
 	auto depthDebugVertexShaderHandle = createVertexShader(depthDebugVertexShader);
 	auto depthDebugFragmentShaderHandle = createFragmentShader(depthDebugFragmentShader);
-	
+
 	depthDebugShaderProgramHandle_ = createShaderProgram(depthDebugVertexShaderHandle, depthDebugFragmentShaderHandle);
 }
 
@@ -256,32 +256,32 @@ void OpenGlRenderer::initializeOpenGlBuffers()
 	positionTexture_.bind();
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    
+
     normalTexture_ = Texture2d();
 	normalTexture_.generate(GL_RGB16F, width_, height_, GL_RGB, GL_FLOAT, nullptr);
 	normalTexture_.bind();
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    
+
     albedoTexture_ = Texture2d();
 	albedoTexture_.generate(GL_RGBA, width_, height_, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 	albedoTexture_.bind();
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    
+
     metallicRoughnessAmbientOcclusionTexture_ = Texture2d();
 	metallicRoughnessAmbientOcclusionTexture_.generate(GL_RGB, width_, height_, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
 	metallicRoughnessAmbientOcclusionTexture_.bind();
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	
+
 	frameBuffer_ = FrameBuffer();
 	frameBuffer_.generate();
 	frameBuffer_.attach(positionTexture_);
 	frameBuffer_.attach(normalTexture_);
 	frameBuffer_.attach(albedoTexture_);
 	frameBuffer_.attach(metallicRoughnessAmbientOcclusionTexture_);
-	
+
 	// Shadow mapping
 	shadowMappingDepthMapTexture_ = Texture2d();
 	shadowMappingDepthMapTexture_.generate(GL_DEPTH_COMPONENT, depthBufferWidth, depthBufferHeight, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
@@ -291,37 +291,37 @@ void OpenGlRenderer::initializeOpenGlBuffers()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
 	float borderColor[] = { 1.0f, 1.0f, 1.0f, 1.0f };
-	glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor); 
-	
+	glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+
 	shadowMappingFrameBuffer_ = FrameBuffer();
 	shadowMappingFrameBuffer_.generate();
 	shadowMappingFrameBuffer_.attach(shadowMappingDepthMapTexture_, GL_DEPTH_ATTACHMENT);
 	FrameBuffer::drawBuffer(GL_NONE);
 	FrameBuffer::readBuffer(GL_NONE);
 	FrameBuffer::unbind();
-	
+
 	renderBuffer_ = RenderBuffer();
 	renderBuffer_.generate();
 	renderBuffer_.setStorage(GL_DEPTH_COMPONENT, width_, height_);
-	
+
 	frameBuffer_.attach(renderBuffer_, GL_DEPTH_ATTACHMENT);
 }
-	
+
 void OpenGlRenderer::setViewport(const uint32 width, const uint32 height)
 {
 	width_ = width;
 	height_ = height;
-	
+
 	projection_ = glm::perspective(glm::radians(60.0f), (float32)width / (float32)height, 0.1f, 500.f);
-	
+
 	glViewport(0, 0, width_, height_);
-	
+
 	if (renderBuffer_)
 	{
 		initializeOpenGlBuffers();
 	}
 }
-	
+
 glm::uvec2 OpenGlRenderer::getViewport() const
 {
 	return glm::uvec2(width_, height_);
@@ -346,13 +346,13 @@ void OpenGlRenderer::beginRender()
 {
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 	glEnable(GL_DEPTH_TEST);
-	
+
 	// Setup camera
 	const glm::quat temp = glm::conjugate(camera_.orientation);
 
 	view_ = glm::mat4_cast(temp);
 	view_ = glm::translate(view_, glm::vec3(-camera_.position.x, -camera_.position.y, -camera_.position.z));
-	
+
 	glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
@@ -396,17 +396,17 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 	int modelMatrixLocation = 0;
 	int pvmMatrixLocation = 0;
 	int normalMatrixLocation = 0;
-	
+
 	//assert( modelMatrixLocation >= 0);
 	//assert( pvmMatrixLocation >= 0);
 	//assert( normalMatrixLocation >= 0);
-	
+
 	auto& renderScene = renderSceneHandles_[renderSceneHandle];
-	
+
 	// Rendered depth from lights perspective
 	glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	
+
 	glm::mat4 lightProjection, lightView;
 	glm::mat4 lightSpaceMatrix;
 	float near_plane = -10.0f, far_plane = 100.0f;
@@ -417,33 +417,33 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 	//lightView = glm::lookAt(lightPos, glm::vec3(9.0f, 0.0f, -2.8f), glm::vec3(0.0, 1.0, 0.0));
 	lightView = glm::lookAt(lightPos, lightLookAt, glm::vec3(0.0, 1.0, 0.0));
 	lightSpaceMatrix = lightProjection * lightView;
-	
+
 	// render scene from light's point of view
 	auto& shadowMappingShaderProgram = shaderPrograms_[shadowMappingShaderProgramHandle_];
 	shadowMappingShaderProgram.use();
 	glUniformMatrix4fv(glGetUniformLocation(shadowMappingShaderProgram, "lightSpaceMatrix"), 1, GL_FALSE, &lightSpaceMatrix[0][0]);
 
 	glViewport(0, 0, depthBufferWidth, depthBufferHeight);
-	
+
 	shadowMappingFrameBuffer_.bind();
 	Texture2d::activate(0);
-	
+
 	{
 		modelMatrixLocation = glGetUniformLocation(shadowMappingShaderProgram, "modelMatrix");
-		
+
 		ASSERT_GL_ERROR();
-		
+
 		glClear(GL_DEPTH_BUFFER_BIT);
-		
+
 		for (const auto& r : renderScene.renderables)
 		{
 			glm::mat4 newModel = glm::translate(model_, r.graphicsData.position);
 			newModel = newModel * glm::mat4_cast( r.graphicsData.orientation );
 			newModel = glm::scale(newModel, r.graphicsData.scale);
-		
-			// Send uniform variable values to the shader		
+
+			// Send uniform variable values to the shader
 			glUniformMatrix4fv(modelMatrixLocation, 1, GL_FALSE, &newModel[0][0]);
-			
+
 			if (r.ubo.id > 0)
 			{
 //				const int bonesLocation = glGetUniformLocation(shadowMappingShaderProgram, "bones");
@@ -453,14 +453,14 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 
 				ASSERT_GL_ERROR();
 			}
-			
+
 			auto& texture = texture2ds_[r.textureHandle];
 			texture.bind();
-			
+
 			glBindVertexArray(r.vao.id);
 			glDrawElements(r.vao.ebo.mode, r.vao.ebo.count, r.vao.ebo.type, 0);
 			glBindVertexArray(0);
-			
+
 			ASSERT_GL_ERROR();
 		}
 		//glActiveTexture(GL_TEXTURE0);
@@ -472,18 +472,18 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 	// reset viewport
 	glViewport(0, 0, width_, height_);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	
+
 	ASSERT_GL_ERROR();
-	
+
 	// Geometry pass
 	frameBuffer_.bind();
-	
+
 	Texture2d::activate(0);
-	
+
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	
+
 	//const auto& renderScene = renderSceneHandles_[renderSceneHandle];
-	
+
 	//auto& shaderProgram = shaderPrograms_[renderScene.shaderProgramHandle];
 	auto& deferredLightingGeometryPassShaderProgram = shaderPrograms_[deferredLightingGeometryPassProgramHandle_];
 	deferredLightingGeometryPassShaderProgram.use();
@@ -499,24 +499,24 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 	//glUniform1i(glGetUniformLocation(deferredLightingGeometryPassShaderProgram, "albedoTextures"), 1);
 	glUniform1i(glGetUniformLocation(deferredLightingGeometryPassShaderProgram, "normalTextures"), 1);
 	glUniform1i(glGetUniformLocation(deferredLightingGeometryPassShaderProgram, "metallicRoughnessAmbientOcclusionTextures"), 2);
-	
+
 	ASSERT_GL_ERROR();
-	
+
 	for (const auto& r : renderScene.renderables)
 	{
 		glm::mat4 newModel = glm::translate(model_, r.graphicsData.position);
 		newModel = newModel * glm::mat4_cast( r.graphicsData.orientation );
 		newModel = glm::scale(newModel, r.graphicsData.scale);
-	
-		// Send uniform variable values to the shader		
+
+		// Send uniform variable values to the shader
 		const glm::mat4 pvmMatrix(projection_ * view_ * newModel);
 		glUniformMatrix4fv(pvmMatrixLocation, 1, GL_FALSE, &pvmMatrix[0][0]);
-	
+
 		glm::mat3 normalMatrix = glm::inverse(glm::transpose(glm::mat3(view_ * newModel)));
 		glUniformMatrix3fv(normalMatrixLocation, 1, GL_FALSE, &normalMatrix[0][0]);
-	
+
 		glUniformMatrix4fv(modelMatrixLocation, 1, GL_FALSE, &newModel[0][0]);
-		
+
 		if (r.ubo.id == 0)
 		{
 			glUniform1i(hasBonesLocation, 0);
@@ -540,7 +540,7 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 				glUniform4fv(boneAttachmentWeightsLocation, 1, &r.boneWeights[0]);
 			}
 		}
-	
+
 		if (r.textureHandle)
 		{
 			Texture2d::activate(0);
@@ -557,54 +557,54 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 			Texture2d::activate(2);
 			material.metallicRoughnessAmbientOcclusion.bind();
 		}
-		
-		
+
+
 		glBindVertexArray(r.vao.id);
 		glDrawElements(r.vao.ebo.mode, r.vao.ebo.count, r.vao.ebo.type, 0);
 		glBindVertexArray(0);
-		
+
 		ASSERT_GL_ERROR();
 	}
-	
+
 	// Terrain
 	auto& deferredLightingTerrainGeometryPassShaderProgram = shaderPrograms_[deferredLightingTerrainGeometryPassProgramHandle_];
 	deferredLightingTerrainGeometryPassShaderProgram.use();
-	
+
 	ASSERT(glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "heightMapTexture") >= 0);
 	ASSERT(glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "terrainMapTexture") >= 0);
 	ASSERT(glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "splatMapAlbedoTextures") >= 0);
-	
+
 	glUniform1i(glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "heightMapTexture"), 0);
 	glUniform1i(glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "terrainMapTexture"), 1);
 	glUniform1i(glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "splatMapAlbedoTextures"), 2);
 	glUniform1i(glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "splatMapNormalTextures"), 3);
 	glUniform1i(glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "splatMapMetallicRoughnessAmbientOcclusionTextures"), 4);
-	
+
 	modelMatrixLocation = glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "modelMatrix");
 	pvmMatrixLocation = glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "pvmMatrix");
 	//normalMatrixLocation = glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "normalMatrix");
-	
+
 	ASSERT(modelMatrixLocation >= 0);
 	ASSERT(pvmMatrixLocation >= 0);
 	//ASSERT(normalMatrixLocation >= 0);
-	
+
 	ASSERT_GL_ERROR();
-	
+
 	for (auto& t : renderScene.terrain)
 	{
 		glm::mat4 newModel = glm::translate(model_, t.graphicsData.position);
 		newModel = newModel * glm::mat4_cast( t.graphicsData.orientation );
 		newModel = glm::scale(newModel, t.graphicsData.scale);
-	
-		// Send uniform variable values to the shader		
+
+		// Send uniform variable values to the shader
 		const glm::mat4 pvmMatrix(projection_ * view_ * newModel);
 		glUniformMatrix4fv(pvmMatrixLocation, 1, GL_FALSE, &pvmMatrix[0][0]);
-	
+
 		//glm::mat3 normalMatrix = glm::inverse(glm::transpose(glm::mat3(view_ * newModel)));
 		//glUniformMatrix3fv(normalMatrixLocation, 1, GL_FALSE, &normalMatrix[0][0]);
-	
+
 		glUniformMatrix4fv(modelMatrixLocation, 1, GL_FALSE, &newModel[0][0]);
-		
+
 		if (t.ubo.id > 0)
 		{
 			//const int bonesLocation = glGetUniformLocation(deferredLightingGeometryPassShaderProgram, "bones");
@@ -612,43 +612,43 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 			//glBindBufferBase(GL_UNIFORM_BUFFER, bonesLocation, r.ubo.id);
 			glBindBufferBase(GL_UNIFORM_BUFFER, 0, t.ubo.id);
 		}
-		
+
 		auto& terrain = terrains_[t.terrainHandle];
 
 		Texture2d::activate(0);
 		auto& texture = texture2ds_[terrain.textureHandle];
 		texture.bind();
-		
+
 		Texture2d::activate(1);
 		auto& terrainMapTexture = texture2ds_[terrain.terrainMapTextureHandle];
 		terrainMapTexture.bind();
-		
+
 		Texture2dArray::activate(2);
 		terrain.splatMapTexture2dArrays[0].bind();
-		
+
 		Texture2dArray::activate(3);
 		terrain.splatMapTexture2dArrays[1].bind();
-		
+
 		Texture2dArray::activate(4);
 		terrain.splatMapTexture2dArrays[2].bind();
-		
+
 		glBindVertexArray(t.vao.id);
 		glDrawElements(t.vao.ebo.mode, t.vao.ebo.count, t.vao.ebo.type, 0);
 		glBindVertexArray(0);
-		
+
 		ASSERT_GL_ERROR();
 	}
-	
+
 	FrameBuffer::unbind();
-	
+
 	ASSERT_GL_ERROR();
-	
+
 	// Lighting pass
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	
+
 	auto& lightingShaderProgram = shaderPrograms_[lightingShaderProgramHandle_];
 	lightingShaderProgram.use();
-	
+
 	glUniform1i(glGetUniformLocation(lightingShaderProgram, "gPosition"), 0);
 	glUniform1i(glGetUniformLocation(lightingShaderProgram, "gNormal"), 1);
 	glUniform1i(glGetUniformLocation(lightingShaderProgram, "gAlbedoSpec"), 2);
@@ -657,7 +657,7 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 	glUniform3fv(glGetUniformLocation(lightingShaderProgram, "viewPos"), 1, &camera_.position[0]);
 	glUniform3fv(glGetUniformLocation(lightingShaderProgram, "lightPos"), 1, &lightPos[0]);
 	glUniformMatrix4fv(glGetUniformLocation(lightingShaderProgram, "lightSpaceMatrix"), 1, GL_FALSE, &lightSpaceMatrix[0][0]);
-	
+
 	Texture2d::activate(0);
 	positionTexture_.bind();
 	Texture2d::activate(1);
@@ -668,11 +668,11 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 	metallicRoughnessAmbientOcclusionTexture_.bind();
 	Texture2d::activate(4);
 	shadowMappingDepthMapTexture_.bind();
-	
+
 	for (const auto& light : renderScene.pointLights)
 	{
 		//glm::vec4 newPos = model_ * glm::vec4(lightPositions_[i], 1.0);
-		
+
 		glUniform3fv(glGetUniformLocation(lightingShaderProgram, ("lights[" + std::to_string(0) + "].Position").c_str()), 1, &light.position.x);
 		glUniform3fv(glGetUniformLocation(lightingShaderProgram, ("lights[" + std::to_string(0) + "].Color").c_str()), 1, &lightColors_[0].x);
 		// update attenuation parameters and calculate radius
@@ -684,23 +684,23 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 		glUniform1f(glGetUniformLocation(lightingShaderProgram, ("lights[" + std::to_string(0) + "].Linear").c_str()), linear);
 		glUniform1f(glGetUniformLocation(lightingShaderProgram, ("lights[" + std::to_string(0) + "].Quadratic").c_str()), quadratic);
 	}
-	
+
 	//glm::vec4 newPos = model_ * glm::vec4(lightPositions_[i], 1.0);
-    
+
 	glUniform3fv(glGetUniformLocation(lightingShaderProgram, ("directionalLights[" + std::to_string(0) + "].direction").c_str()), 1, &direction.x);
 	glUniform3fv(glGetUniformLocation(lightingShaderProgram, ("directionalLights[" + std::to_string(0) + "].ambient").c_str()), 1, &ambient.x);
 	glUniform3fv(glGetUniformLocation(lightingShaderProgram, ("directionalLights[" + std::to_string(0) + "].diffuse").c_str()), 1, &diffuse.x);
 	glUniform3fv(glGetUniformLocation(lightingShaderProgram, ("directionalLights[" + std::to_string(0) + "].specular").c_str()), 1, &specular.x);
-	
+
 	renderQuad();
 
 	// copy geometry depth buffer to default frame buffers depth buffer
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, frameBuffer_);
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 	glBlitFramebuffer(0, 0, width_, height_, 0, 0, width_, height_, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
-	
+
 	FrameBuffer::unbind();
-	
+
 	/*
 	// Debug draw
 	auto& depthDebugShaderProgram = shaderPrograms_[depthDebugShaderProgramHandle_];
@@ -715,7 +715,7 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 	renderQuad();
 	*/
 	// Render lights?
-	
+
 	ASSERT_GL_ERROR();
 }
 
@@ -727,31 +727,31 @@ void OpenGlRenderer::renderLine(const glm::vec3& from, const glm::vec3& to, cons
 	glDeleteVertexArrays(1, &VAO);
 	glGenBuffers(1, &VBO);
 	glGenVertexArrays(1, &VAO);
-	
+
 	glBindVertexArray(VAO);
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
 	glBufferData(GL_ARRAY_BUFFER, 4 * sizeof(glm::vec3), nullptr, GL_DYNAMIC_DRAW);
-	
+
 	glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(glm::vec3), &from.x);
 	glBufferSubData(GL_ARRAY_BUFFER, sizeof(glm::vec3), sizeof(glm::vec3), &to.x);
 	glBufferSubData(GL_ARRAY_BUFFER, 2 * sizeof(glm::vec3), sizeof(glm::vec3), &color.x);
 	glBufferSubData(GL_ARRAY_BUFFER, 3 * sizeof(glm::vec3), sizeof(glm::vec3), &color.x);
-	
+
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
 	glEnableVertexAttribArray(0);
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, (GLvoid*)(2 * sizeof(glm::vec3)));
 	glEnableVertexAttribArray(1);
 	glBindVertexArray(0);
-	
+
 	auto& lineShaderProgram = shaderPrograms_[lineShaderProgramHandle_];
 	auto projectionMatrixLocation = glGetUniformLocation(lineShaderProgram, "projectionMatrix");
 	auto viewMatrixLocation = glGetUniformLocation(lineShaderProgram, "viewMatrix");
-	
+
 	lineShaderProgram.use();
-	
+
 	glUniformMatrix4fv(projectionMatrixLocation, 1, GL_FALSE, &projection_[0][0]);
 	glUniformMatrix4fv(viewMatrixLocation, 1, GL_FALSE, &view_[0][0]);
-	
+
 	glBindVertexArray(VAO);
 	glDrawArrays(GL_LINES, 0, 2);
 	glBindVertexArray(0);
@@ -760,12 +760,12 @@ void OpenGlRenderer::renderLine(const glm::vec3& from, const glm::vec3& to, cons
 void OpenGlRenderer::renderLines(const std::vector<std::tuple<glm::vec3, glm::vec3, glm::vec3>>& lineData)
 {
 	std::vector<std::tuple<glm::vec3, glm::vec3, glm::vec3, glm::vec3>> lineData2;
-	
+
 	for (const auto& line : lineData)
 	{
 		lineData2.push_back( std::tuple<glm::vec3, glm::vec3, glm::vec3, glm::vec3>(std::get<0>(line), std::get<1>(line), std::get<2>(line), std::get<2>(line)) );
 	}
-	
+
 	auto size = lineData2.size() * (4 * sizeof(glm::vec3));
 	if (!VBO || size > lastSize)
 	{
@@ -776,28 +776,28 @@ void OpenGlRenderer::renderLines(const std::vector<std::tuple<glm::vec3, glm::ve
 
 		lastSize = size;
 	}
-	
+
 	glBindVertexArray(VAO);
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
 	glBufferData(GL_ARRAY_BUFFER, size, &lineData2[0], GL_DYNAMIC_DRAW);
-	
+
 //	glBufferSubData(GL_ARRAY_BUFFER, 0, lineData2.size() * 4 * sizeof(glm::vec3), &lineData2[0]);
-	
+
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
 	glEnableVertexAttribArray(0);
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, (GLvoid*)(2 * sizeof(glm::vec3)));
 	glEnableVertexAttribArray(1);
 //	glBindVertexArray(0);
-	
+
 	auto& lineShaderProgram = shaderPrograms_[lineShaderProgramHandle_];
 	auto projectionMatrixLocation = glGetUniformLocation(lineShaderProgram, "projectionMatrix");
 	auto viewMatrixLocation = glGetUniformLocation(lineShaderProgram, "viewMatrix");
-	
+
 	lineShaderProgram.use();
-	
+
 	glUniformMatrix4fv(projectionMatrixLocation, 1, GL_FALSE, &projection_[0][0]);
 	glUniformMatrix4fv(viewMatrixLocation, 1, GL_FALSE, &view_[0][0]);
-	
+
 //	glBindVertexArray(VAO);
 	glDrawArrays(GL_LINES, 0, 4 * lineData2.size());
 	glBindVertexArray(0);
@@ -824,11 +824,11 @@ CameraHandle OpenGlRenderer::createCamera(const glm::vec3& position, const glm::
 	camera_.position = position;
 	camera_.orientation = glm::quat();
 	//camera_.orientation = glm::normalize(camera_.orientation);
-	
+
 	CameraHandle cameraHandle = CameraHandle(0, 1);
-	
+
 	this->lookAt(cameraHandle, lookAt);
-	
+
 	return cameraHandle;
 }
 
@@ -837,11 +837,11 @@ PointLightHandle OpenGlRenderer::createPointLight(const RenderSceneHandle& rende
 	auto& renderScene = renderSceneHandles_[renderSceneHandle];
 	auto handle = renderScene.pointLights.create();
 	auto& light = renderScene.pointLights[handle];
-	
+
 	light.position = position;
 	light.scale = glm::vec3(1.0f, 1.0f, 1.0f);
 	light.orientation = glm::quat();
-	
+
 	return handle;
 }
 
@@ -861,49 +861,49 @@ MeshHandle OpenGlRenderer::createStaticMesh(
 {
 	auto handle = meshes_.create();
 	auto& vao = meshes_[handle];
-	
+
 	glGenVertexArrays(1, &vao.id);
 	glGenBuffers(1, &vao.vbo[0].id);
 	glGenBuffers(1, &vao.ebo.id);
-	
+
 	auto size = vertices.size() * sizeof(glm::vec3);
 	size += colors.size() * sizeof(glm::vec4);
 	size += normals.size() * sizeof(glm::vec3);
 	size += textureCoordinates.size() * sizeof(glm::vec2);
-	
+
 	glBindVertexArray(vao.id);
 	glBindBuffer(GL_ARRAY_BUFFER, vao.vbo[0].id);
 	glBufferData(GL_ARRAY_BUFFER, size, nullptr, GL_STATIC_DRAW);
-	
+
 	auto offset = 0;
 	glBufferSubData(GL_ARRAY_BUFFER, offset, vertices.size() * sizeof(glm::vec3), &vertices[0]);
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
 	glEnableVertexAttribArray(0);
-	
+
 	offset += vertices.size() * sizeof(glm::vec3);
 	glBufferSubData(GL_ARRAY_BUFFER, offset, colors.size() * sizeof(glm::vec4), &colors[0]);
 	glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, (GLvoid*)(offset));
 	glEnableVertexAttribArray(1);
-	
+
 	offset += colors.size() * sizeof(glm::vec4);
 	glBufferSubData(GL_ARRAY_BUFFER, offset, normals.size() * sizeof(glm::vec3), &normals[0]);
 	glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, (GLvoid*)(offset));
 	glEnableVertexAttribArray(2);
-	
+
 	offset += normals.size() * sizeof(glm::vec3);
 	glBufferSubData(GL_ARRAY_BUFFER, offset, textureCoordinates.size() * sizeof(glm::vec2), &textureCoordinates[0]);
 	glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, 0, (GLvoid*)(offset));
 	glEnableVertexAttribArray(3);
-	
+
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vao.ebo.id);
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(uint32), &indices[0], GL_STATIC_DRAW);
-	
+
 	glBindVertexArray(0);
-	
+
 	vao.ebo.count = indices.size();
 	vao.ebo.mode = GL_TRIANGLES;
 	vao.ebo.type =  GL_UNSIGNED_INT;
-	
+
 	return handle;
 }
 
@@ -917,47 +917,47 @@ MeshHandle OpenGlRenderer::createDynamicMesh(const IMesh* mesh)
 	/*
 	auto handle = meshes_.create();
 	auto& vao = meshes_[handle];
-	
+
 	glGenVertexArrays(1, &vao.id);
 	glGenBuffers(1, &vao.vbo[0].id);
 	glGenBuffers(1, &vao.vbo[1].id);
 	glGenBuffers(1, &vao.vbo[2].id);
 	glGenBuffers(1, &vao.vbo[3].id);
 	glGenBuffers(1, &vao.ebo.id);
-	
+
 	glBindVertexArray(vao.id);
 	glBindBuffer(GL_ARRAY_BUFFER, vao.vbo[0].id);
 	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(glm::vec3), &vertices[0], GL_STATIC_DRAW);
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
 	glEnableVertexAttribArray(0);
-	
+
 	glBindBuffer(GL_ARRAY_BUFFER, vao.vbo[1].id);
 	glBufferData(GL_ARRAY_BUFFER, colors.size() * sizeof(glm::vec4), &colors[0], GL_STATIC_DRAW);
 	glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, 0);
 	glEnableVertexAttribArray(1);
-	
+
 	glBindBuffer(GL_ARRAY_BUFFER, vao.vbo[2].id);
 	glBufferData(GL_ARRAY_BUFFER, normals.size() * sizeof(glm::vec3), &normals[0], GL_STATIC_DRAW);
 	glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, 0);
 	glEnableVertexAttribArray(2);
-	
+
 	glBindBuffer(GL_ARRAY_BUFFER, vao.vbo[3].id);
 	glBufferData(GL_ARRAY_BUFFER, textureCoordinates.size() * sizeof(glm::vec2), &textureCoordinates[0], GL_STATIC_DRAW);
 	glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, 0, 0);
 	glEnableVertexAttribArray(3);
-	
+
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vao.ebo.id);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(uint32), &indices[0], GL_STATIC_DRAW); 
-	
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(uint32), &indices[0], GL_STATIC_DRAW);
+
 	glBindVertexArray(0);
-	
+
 	vao.ebo.count = indices.size();
 	vao.ebo.mode = GL_TRIANGLES;
 	vao.ebo.type =  GL_UNSIGNED_INT;
-	
+
 	vertexArrayObjects_.push_back(vao);
 	auto index = vertexArrayObjects_.size() - 1;
-	
+
 	return handle;
 	*/
 	return MeshHandle();
@@ -1127,16 +1127,16 @@ TextureHandle OpenGlRenderer::createTexture2d(const ITexture* texture)
 {
 	auto handle = texture2ds_.create();
 	auto& texture2d = texture2ds_[handle];
-	
+
 	auto format = getOpenGlImageFormat(texture->image()->format());
-	
+
 	texture2d.generate(format, texture->image()->width(), texture->image()->height(), format, GL_UNSIGNED_BYTE, &texture->image()->data()[0], true);
 	//glGenTextures(1, &texture.id);
 	//glBindTexture(GL_TEXTURE_2D, texture.id);
 	//glTexImage2D(GL_TEXTURE_2D, 0, format, image->width(), image->height(), 0, format, GL_UNSIGNED_BYTE, &image->data()[0]);
 	//glGenerateMipmap(GL_TEXTURE_2D);
 	//glBindTexture(GL_TEXTURE_2D, 0);
-	
+
 	return handle;
 }
 
@@ -1144,19 +1144,19 @@ MaterialHandle OpenGlRenderer::createMaterial(const IPbrMaterial* pbrMaterial)
 {
 	auto handle = materials_.create();
 	auto& material = materials_[handle];
-	
+
 	material.albedo = Texture2d();
 	material.albedo.generate(GL_RGBA, pbrMaterial->albedo()->width(), pbrMaterial->albedo()->height(), GL_RGBA, GL_UNSIGNED_BYTE, &pbrMaterial->albedo()->data()[0], true);
 	material.normal = Texture2d();
 	material.normal.generate(GL_RGBA, pbrMaterial->normal()->width(), pbrMaterial->normal()->height(), GL_RGBA, GL_UNSIGNED_BYTE, &pbrMaterial->normal()->data()[0], true);
-	
-	std::vector<char> metalnessRoughnessAmbientOcclusionData;
+
+	std::vector<byte> metalnessRoughnessAmbientOcclusionData;
 	metalnessRoughnessAmbientOcclusionData.resize(pbrMaterial->albedo()->width()*pbrMaterial->albedo()->height()*4);
-	
+
 	const auto metalness = pbrMaterial->metalness();
 	const auto roughness = pbrMaterial->roughness();
 	const auto ambientOcclusion = pbrMaterial->ambientOcclusion();
-	
+
 	for (int j=0; j < metalnessRoughnessAmbientOcclusionData.size(); j+=4)
 	{
 		metalnessRoughnessAmbientOcclusionData[j] = (metalness ? (metalness->data()[j] + metalness->data()[j+1] + metalness->data()[j+2]) / 3 : 127);
@@ -1164,10 +1164,10 @@ MaterialHandle OpenGlRenderer::createMaterial(const IPbrMaterial* pbrMaterial)
 		metalnessRoughnessAmbientOcclusionData[j+2] = (ambientOcclusion ? (ambientOcclusion->data()[j] + ambientOcclusion->data()[j+1] + ambientOcclusion->data()[j+2]) / 3 : 127);
 		metalnessRoughnessAmbientOcclusionData[j+3] = 0;
 	}
-	
+
 	material.metallicRoughnessAmbientOcclusion = Texture2d();
 	material.metallicRoughnessAmbientOcclusion.generate(GL_RGBA, pbrMaterial->albedo()->width(), pbrMaterial->albedo()->height(), GL_RGBA, GL_UNSIGNED_BYTE, &metalnessRoughnessAmbientOcclusionData[0], true);
-	
+
 	return handle;
 }
 
@@ -1224,7 +1224,7 @@ TerrainHandle OpenGlRenderer::createStaticTerrain(
 	const uint32 width = splatMap->materialMap()[0]->albedo()->width();
 	const uint32 height = splatMap->materialMap()[0]->albedo()->height();
 
-	std::vector<char> metalnessRoughnessAmbientOcclusionData;
+	std::vector<byte> metalnessRoughnessAmbientOcclusionData;
 	metalnessRoughnessAmbientOcclusionData.resize(width*height*4);
 
 	terrain.splatMapTexture2dArrays[2] = Texture2dArray();
@@ -1268,13 +1268,13 @@ void OpenGlRenderer::destroy(const TerrainHandle& terrainHandle)
 std::string OpenGlRenderer::loadShaderContents(const std::string& filename) const
 {
 	const std::string shaderDirectory = properties_->getStringValue("graphics.shaderDirectory", "shaders");
-	
+
 	auto path = shaderDirectory + fileSystem_->getDirectorySeperator() + filename;
-	
+
 	LOG_DEBUG(logger_, (std::string("Loading shader: ") + path))
-	
+
 	if (!fileSystem_->exists(path)) throw std::runtime_error("Shader with filename '" + path + "' does not exist.");
-	
+
 	auto file = fileSystem_->open(path, fs::FileFlags::READ | fs::FileFlags::BINARY);
 	return file->readAll();
 }
@@ -1329,7 +1329,7 @@ void OpenGlRenderer::destroyShader(const VertexShaderHandle& shaderHandle)
 	{
 		throw std::runtime_error("Invalid shader handle");
 	}
-	
+
 	vertexShaders_.destroy(shaderHandle);
 }
 
@@ -1339,7 +1339,7 @@ void OpenGlRenderer::destroyShader(const FragmentShaderHandle& shaderHandle)
 	{
 		throw std::runtime_error("Invalid shader handle");
 	}
-	
+
 	fragmentShaders_.destroy(shaderHandle);
 }
 
@@ -1349,7 +1349,7 @@ void OpenGlRenderer::destroyShader(const TessellationControlShaderHandle& shader
 	{
 		throw std::runtime_error("Invalid shader handle");
 	}
-	
+
 	tessellationControlShaders_.destroy(shaderHandle);
 }
 
@@ -1359,7 +1359,7 @@ void OpenGlRenderer::destroyShader(const TessellationEvaluationShaderHandle& sha
 	{
 		throw std::runtime_error("Invalid shader handle");
 	}
-	
+
 	tessellationEvaluationShaders_.destroy(shaderHandle);
 }
 
@@ -1367,7 +1367,7 @@ ShaderProgramHandle OpenGlRenderer::createShaderProgram(const VertexShaderHandle
 {
 	const auto& vertexShader = vertexShaders_[vertexShaderHandle];
 	const auto& fragmentShader = fragmentShaders_[fragmentShaderHandle];
-	
+
 	return shaderPrograms_.create( ShaderProgram(vertexShader, fragmentShader) );
 }
 
@@ -1382,7 +1382,7 @@ ShaderProgramHandle OpenGlRenderer::createShaderProgram(
 	const auto& tessellationControlShader = tessellationControlShaders_[tessellationControlShaderHandle];
 	const auto& tessellationEvaluationShader = tessellationEvaluationShaders_[tessellationEvaluationShaderHandle];
 	const auto& fragmentShader = fragmentShaders_[fragmentShaderHandle];
-	
+
 	return shaderPrograms_.create( ShaderProgram(vertexShader, tessellationControlShader, tessellationEvaluationShader, fragmentShader) );
 }
 
@@ -1397,7 +1397,7 @@ void OpenGlRenderer::destroyShaderProgram(const ShaderProgramHandle& shaderProgr
 	{
 		throw std::runtime_error("Invalid shader program handle");
 	}
-	
+
 	shaderPrograms_.destroy(shaderProgramHandle);
 }
 
@@ -1415,16 +1415,16 @@ RenderableHandle OpenGlRenderer::createRenderable(
 	auto& renderScene = renderSceneHandles_[renderSceneHandle];
 	auto handle = renderScene.renderables.create();
 	auto& renderable = renderScene.renderables[handle];
-	
+
 	renderScene.shaderProgramHandle = shaderProgramHandle;
-	
+
 	renderable.vao = meshes_[meshHandle];
 	renderable.textureHandle = textureHandle;
-	
+
 	renderable.graphicsData.position = position;
 	renderable.graphicsData.scale = scale;
 	renderable.graphicsData.orientation = orientation;
-	
+
 	return handle;
 }
 
@@ -1440,17 +1440,17 @@ RenderableHandle OpenGlRenderer::createRenderable(
 	auto& renderScene = renderSceneHandles_[renderSceneHandle];
 	auto handle = renderScene.renderables.create();
 	auto& renderable = renderScene.renderables[handle];
-	
+
 	//renderScene.shaderProgramHandle = shaderProgramHandle;
-	
+
 	renderable.vao = meshes_[meshHandle];
 	//renderable.textureHandle = textureHandle;
 	renderable.materialHandle = materialHandle;
-	
+
 	renderable.graphicsData.position = position;
 	renderable.graphicsData.scale = scale;
 	renderable.graphicsData.orientation = orientation;
-	
+
 	return handle;
 }
 
@@ -1468,16 +1468,16 @@ TerrainRenderableHandle OpenGlRenderer::createTerrainRenderable(
 	auto& renderScene = renderSceneHandles_[renderSceneHandle];
 	auto handle = renderScene.terrain.create();
 	auto& terrainRenderable = renderScene.terrain[handle];
-	
+
 	const auto& terrain = terrains_[terrainHandle];
 
 	terrainRenderable.vao = terrain.vao;
 	terrainRenderable.terrainHandle = terrainHandle;
-	
+
 	terrainRenderable.graphicsData.position = glm::vec3(0.0f, 0.0f, 0.0f) + glm::vec3(-(float32)terrain.width/2.0f, 0.0f, -(float32)terrain.height/2.0f);
 	terrainRenderable.graphicsData.scale = glm::vec3(1.0f, 1.0f, 1.0f);
 	terrainRenderable.graphicsData.orientation = glm::quat();
-	
+
 	return handle;
 }
 
@@ -1494,11 +1494,11 @@ void OpenGlRenderer::rotate(const CameraHandle& cameraHandle, const glm::quat& q
 		case TransformSpace::TS_LOCAL:
 			camera_.orientation = camera_.orientation * glm::normalize( quaternion );
 			break;
-		
+
 		case TransformSpace::TS_WORLD:
 			camera_.orientation =  glm::normalize( quaternion ) * camera_.orientation;
 			break;
-			
+
 		default:
 			std::string message = std::string("Invalid TransformSpace type.");
 			throw std::runtime_error(message);
@@ -1508,17 +1508,17 @@ void OpenGlRenderer::rotate(const CameraHandle& cameraHandle, const glm::quat& q
 void OpenGlRenderer::rotate(const RenderSceneHandle& renderSceneHandle, const RenderableHandle& renderableHandle, const glm::quat& quaternion, const TransformSpace& relativeTo)
 {
 	auto& renderable = renderSceneHandles_[renderSceneHandle].renderables[renderableHandle];
-	
+
 	switch( relativeTo )
 	{
 		case TransformSpace::TS_LOCAL:
 			renderable.graphicsData.orientation = renderable.graphicsData.orientation * glm::normalize( quaternion );
 			break;
-		
+
 		case TransformSpace::TS_WORLD:
 			renderable.graphicsData.orientation =  glm::normalize( quaternion ) * renderable.graphicsData.orientation;
 			break;
-			
+
 		default:
 			std::string message = std::string("Invalid TransformSpace type.");
 			throw std::runtime_error(message);
@@ -1532,11 +1532,11 @@ void OpenGlRenderer::rotate(const CameraHandle& cameraHandle, const float32 degr
 		case TransformSpace::TS_LOCAL:
 			camera_.orientation = glm::normalize( glm::angleAxis(glm::radians(degrees), axis) ) * camera_.orientation;
 			break;
-		
+
 		case TransformSpace::TS_WORLD:
 			camera_.orientation =  camera_.orientation * glm::normalize( glm::angleAxis(glm::radians(degrees), axis) );
 			break;
-			
+
 		default:
 			std::string message = std::string("Invalid TransformSpace type.");
 			throw std::runtime_error(message);
@@ -1546,17 +1546,17 @@ void OpenGlRenderer::rotate(const CameraHandle& cameraHandle, const float32 degr
 void OpenGlRenderer::rotate(const RenderSceneHandle& renderSceneHandle, const RenderableHandle& renderableHandle, const float32 degrees, const glm::vec3& axis, const TransformSpace& relativeTo)
 {
 	auto& renderable = renderSceneHandles_[renderSceneHandle].renderables[renderableHandle];
-	
+
 	switch( relativeTo )
 	{
 		case TransformSpace::TS_LOCAL:
 			renderable.graphicsData.orientation = glm::normalize( glm::angleAxis(glm::radians(degrees), axis) ) * renderable.graphicsData.orientation;
 			break;
-		
+
 		case TransformSpace::TS_WORLD:
 			renderable.graphicsData.orientation =  renderable.graphicsData.orientation * glm::normalize( glm::angleAxis(glm::radians(degrees), axis) );
 			break;
-			
+
 		default:
 			std::string message = std::string("Invalid TransformSpace type.");
 			throw std::runtime_error(message);
@@ -1583,7 +1583,7 @@ void OpenGlRenderer::rotation(const CameraHandle& cameraHandle, const float32 de
 void OpenGlRenderer::rotation(const RenderSceneHandle& renderSceneHandle, const RenderableHandle& renderableHandle, const float32 degrees, const glm::vec3& axis)
 {
 	auto& renderable = renderSceneHandles_[renderSceneHandle].renderables[renderableHandle];
-	
+
 	renderable.graphicsData.orientation = glm::normalize( glm::angleAxis(glm::radians(degrees), axis) );
 }
 
@@ -1605,14 +1605,14 @@ void OpenGlRenderer::translate(const CameraHandle& cameraHandle, const float32 x
 void OpenGlRenderer::translate(const RenderSceneHandle& renderSceneHandle, const RenderableHandle& renderableHandle, const float32 x, const float32 y, const float32 z)
 {
 	auto& renderable = renderSceneHandles_[renderSceneHandle].renderables[renderableHandle];
-	
+
 	renderable.graphicsData.position += glm::vec3(x, y, z);
 }
 
 void OpenGlRenderer::translate(const RenderSceneHandle& renderSceneHandle, const PointLightHandle& pointLightHandle, const float32 x, const float32 y, const float32 z)
 {
 	auto& light = renderSceneHandles_[renderSceneHandle].pointLights[pointLightHandle];
-	
+
 	light.position += glm::vec3(x, y, z);
 }
 
@@ -1624,35 +1624,35 @@ void OpenGlRenderer::translate(const CameraHandle& cameraHandle, const glm::vec3
 void OpenGlRenderer::translate(const RenderSceneHandle& renderSceneHandle, const RenderableHandle& renderableHandle, const glm::vec3& trans)
 {
 	auto& renderable = renderSceneHandles_[renderSceneHandle].renderables[renderableHandle];
-	
+
 	renderable.graphicsData.position += trans;
 }
 
 void OpenGlRenderer::translate(const RenderSceneHandle& renderSceneHandle, const PointLightHandle& pointLightHandle, const glm::vec3& trans)
 {
 	auto& light = renderSceneHandles_[renderSceneHandle].pointLights[pointLightHandle];
-	
+
 	light.position += trans;
 }
 
 void OpenGlRenderer::scale(const RenderSceneHandle& renderSceneHandle, const RenderableHandle& renderableHandle, const float32 x, const float32 y, const float32 z)
 {
 	auto& renderable = renderSceneHandles_[renderSceneHandle].renderables[renderableHandle];
-	
+
 	renderable.graphicsData.scale = glm::vec3(x, y, z);
 }
 
 void OpenGlRenderer::scale(const RenderSceneHandle& renderSceneHandle, const RenderableHandle& renderableHandle, const glm::vec3& scale)
 {
 	auto& renderable = renderSceneHandles_[renderSceneHandle].renderables[renderableHandle];
-	
+
 	renderable.graphicsData.scale = scale;
 }
 
 void OpenGlRenderer::scale(const RenderSceneHandle& renderSceneHandle, const RenderableHandle& renderableHandle, const float32 scale)
 {
 	auto& renderable = renderSceneHandles_[renderSceneHandle].renderables[renderableHandle];
-	
+
 	renderable.graphicsData.scale = glm::vec3(scale, scale, scale);
 }
 
@@ -1670,7 +1670,7 @@ void OpenGlRenderer::position(const RenderSceneHandle& renderSceneHandle, const 
 void OpenGlRenderer::position(const RenderSceneHandle& renderSceneHandle, const PointLightHandle& pointLightHandle, const float32 x, const float32 y, const float32 z)
 {
 	auto& light = renderSceneHandles_[renderSceneHandle].pointLights[pointLightHandle];
-	
+
 	light.position += glm::vec3(x, y, z);
 }
 
@@ -1682,14 +1682,14 @@ void OpenGlRenderer::position(const CameraHandle& cameraHandle, const float32 x,
 void OpenGlRenderer::position(const RenderSceneHandle& renderSceneHandle, const RenderableHandle& renderableHandle, const glm::vec3& position)
 {
 	auto& renderable = renderSceneHandles_[renderSceneHandle].renderables[renderableHandle];
-	
+
 	renderable.graphicsData.position = position;
 }
 
 void OpenGlRenderer::position(const RenderSceneHandle& renderSceneHandle, const PointLightHandle& pointLightHandle, const glm::vec3& position)
 {
 	auto& light = renderSceneHandles_[renderSceneHandle].pointLights[pointLightHandle];
-	
+
 	light.position = position;
 }
 
@@ -1716,9 +1716,9 @@ glm::vec3 OpenGlRenderer::position(const CameraHandle& cameraHandle) const
 void OpenGlRenderer::lookAt(const RenderSceneHandle& renderSceneHandle, const RenderableHandle& renderableHandle, const glm::vec3& lookAt)
 {
 	auto& renderable = renderSceneHandles_[renderSceneHandle].renderables[renderableHandle];
-	
+
 	assert(lookAt != renderable.graphicsData.position);
-	
+
 	const glm::mat4 lookAtMatrix = glm::lookAt(renderable.graphicsData.position, lookAt, glm::vec3(0.0f, 1.0f, 0.0f));
 	renderable.graphicsData.orientation =  glm::normalize( renderable.graphicsData.orientation * glm::quat_cast( lookAtMatrix ) );
 }
@@ -1726,10 +1726,10 @@ void OpenGlRenderer::lookAt(const RenderSceneHandle& renderSceneHandle, const Re
 void OpenGlRenderer::lookAt(const CameraHandle& cameraHandle, const glm::vec3& lookAt)
 {
 	assert(lookAt != camera_.position);
-	
+
 	const glm::mat4 lookAtMatrix = glm::lookAt(camera_.position, lookAt, glm::vec3(0.0f, 1.0f, 0.0f));
 	camera_.orientation =  glm::normalize( camera_.orientation * glm::quat_cast( lookAtMatrix ) );
-	
+
 	// const glm::vec3 currentForward = camera_.orientation * glm::vec3(0.0f, 0.0f, 1.0f);
 	// const glm::vec3 desiredForward = lookAt - camera_.position;
 	// camera_.orientation = glm::normalize( glm::rotation(glm::normalize(currentForward), glm::normalize(desiredForward)) );
@@ -1738,7 +1738,7 @@ void OpenGlRenderer::lookAt(const CameraHandle& cameraHandle, const glm::vec3& l
 void OpenGlRenderer::assign(const RenderSceneHandle& renderSceneHandle, const RenderableHandle& renderableHandle, const SkeletonHandle& skeletonHandle)
 {
 	auto& renderable = renderSceneHandles_[renderSceneHandle].renderables[renderableHandle];
-	
+
 	renderable.ubo = skeletons_[skeletonHandle];
 }
 
@@ -1753,7 +1753,7 @@ void OpenGlRenderer::update(
 //
 //	glBindBuffer(GL_UNIFORM_BUFFER, ubo.id);
 //	glBufferSubData(GL_UNIFORM_BUFFER, 0, size, data);
-	
+
 	//void* d = glMapBufferRange(GL_UNIFORM_BUFFER, 0, size, GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_RANGE_BIT);
 	//memcpy( d, data, size );
 	//glUnmapBuffer(GL_UNIFORM_BUFFER);
@@ -1775,7 +1775,7 @@ void OpenGlRenderer::update(
 void OpenGlRenderer::setMouseRelativeMode(const bool enabled)
 {
 	auto result = SDL_SetRelativeMouseMode(static_cast<SDL_bool>(enabled));
-	
+
 	if (result != 0)
 	{
 		auto message = std::string("Unable to set relative mouse mode: ") + SDL_GetError();
@@ -1792,7 +1792,7 @@ void OpenGlRenderer::setCursorVisible(const bool visible)
 {
 	auto toggle = (visible ? SDL_ENABLE : SDL_DISABLE);
 	auto result = SDL_ShowCursor(toggle);
-	
+
 	if (result < 0)
 	{
 		auto message = std::string("Unable to set mouse cursor visible\\invisible: ") + SDL_GetError();
@@ -1814,7 +1814,7 @@ void OpenGlRenderer::processEvents()
 				//handleWindowEvent( evt );
 				break;
 			case SDL_QUIT:
-				
+
 				break;
 			default:
 				break;
@@ -1840,7 +1840,7 @@ Event OpenGlRenderer::convertSdlEvent(const SDL_Event& event)
 		case SDL_QUIT:
 			e.type = QUIT;
 			break;
-		
+
 		case SDL_WINDOWEVENT:
 			e.type = WINDOWEVENT;
 			e.window.eventType = convertSdlWindowEventId(event.window.event);
@@ -1849,21 +1849,21 @@ Event OpenGlRenderer::convertSdlEvent(const SDL_Event& event)
 			e.window.data1 = event.window.data1;
 			e.window.data2 = event.window.data2;
 			break;
-		
+
 		case SDL_KEYDOWN:
 			e.type = KEYDOWN;
 			e.key.keySym = convertSdlKeySym(event.key.keysym);
 			e.key.state = (event.key.state == SDL_RELEASED ? KEY_RELEASED : KEY_PRESSED);
 			e.key.repeat = event.key.repeat;
 			break;
-		
+
 		case SDL_KEYUP:
 			e.type = KEYUP;
 			e.key.keySym = convertSdlKeySym(event.key.keysym);
 			e.key.state = (event.key.state == SDL_RELEASED ? KEY_RELEASED : KEY_PRESSED);
 			e.key.repeat = event.key.repeat;
 			break;
-			
+
 		case SDL_MOUSEMOTION:
 			e.type = MOUSEMOTION;
 			e.motion.x = event.motion.x;
@@ -1871,9 +1871,9 @@ Event OpenGlRenderer::convertSdlEvent(const SDL_Event& event)
 			e.motion.xrel = event.motion.xrel;
 			e.motion.yrel = event.motion.yrel;
 			//e.state = (event.key.state == SDL_RELEASED ? KEY_RELEASED : KEY_PRESSED);
-			
+
 			break;
-		
+
 		case SDL_MOUSEBUTTONDOWN:
 			e.type = MOUSEBUTTONDOWN;
 			e.button.button = event.button.button;
@@ -1881,9 +1881,9 @@ Event OpenGlRenderer::convertSdlEvent(const SDL_Event& event)
 			e.button.clicks = event.button.clicks;
 			e.button.x = event.button.x;
 			e.button.y = event.button.y;
-			
+
 			break;
-		
+
 		case SDL_MOUSEBUTTONUP:
 			e.type = MOUSEBUTTONUP;
 			e.button.button = event.button.button;
@@ -1891,22 +1891,22 @@ Event OpenGlRenderer::convertSdlEvent(const SDL_Event& event)
 			e.button.clicks = event.button.clicks;
 			e.button.x = event.button.x;
 			e.button.y = event.button.y;
-			
+
 			break;
-		
+
 		case SDL_MOUSEWHEEL:
 			e.type = MOUSEWHEEL;
 			e.wheel.x = event.wheel.x;
 			e.wheel.y = event.wheel.y;
 			e.wheel.direction = event.wheel.direction;
-			
+
 			break;
-		
+
 		default:
 			e.type = UNKNOWN;
 			break;
 	}
-	
+
 	return e;
 }
 
@@ -1948,7 +1948,7 @@ WindowEventType OpenGlRenderer::convertSdlWindowEventId(const uint8 windowEventI
 			return WINDOWEVENT_TAKE_FOCUS;
 	    case SDL_WINDOWEVENT_HIT_TEST:
 			return WINDOWEVENT_HIT_TEST;
-	    
+
 		default:
 			return WINDOWEVENT_UNKNOWN;
 	}
@@ -1957,11 +1957,11 @@ WindowEventType OpenGlRenderer::convertSdlWindowEventId(const uint8 windowEventI
 KeySym OpenGlRenderer::convertSdlKeySym(const SDL_Keysym& keySym)
 {
 	KeySym key;
-	
+
 	key.sym = convertSdlKeycode(keySym.sym);
 	key.scancode = convertSdlScancode(keySym.scancode);
 	key.mod = convertSdlKeymod(keySym.mod);
-	
+
 	return key;
 }
 
@@ -2441,7 +2441,7 @@ KeyCode OpenGlRenderer::convertSdlKeycode(const SDL_Keycode& sdlKeycode)
 			return KEY_RIGHTPAREN;
 		case SDLK_UNDERSCORE:
 			return KEY_UNDERSCORE;
-		
+
 		default:
 			return KEY_UNKNOWN;
 	}
@@ -2929,7 +2929,7 @@ ScanCode OpenGlRenderer::convertSdlScancode(const SDL_Scancode& sdlScancode)
 			return SCANCODE_NONUSBACKSLASH;
 		case SDL_SCANCODE_NONUSHASH:
 			return SCANCODE_NONUSHASH;
-		
+
 		default:
 			return SCANCODE_UNKNOWN;
 	}
@@ -2973,7 +2973,7 @@ KeyMod OpenGlRenderer::convertSdlKeymod(const uint16 sdlKeymod)
 			return KEYMOD_ALT;
 		case KMOD_GUI:
 			return KEYMOD_GUI;
-		
+
 		default:
 			return KEYMOD_NONE;
 	}
@@ -2985,14 +2985,14 @@ void OpenGlRenderer::addEventListener(IEventListener* eventListener)
 	{
 		throw std::invalid_argument("IEventListener cannot be null.");
 	}
-	
+
 	eventListeners_.push_back(eventListener);
 }
 
 void OpenGlRenderer::removeEventListener(IEventListener* eventListener)
 {
 	auto it = std::find(eventListeners_.begin(), eventListeners_.end(), eventListener);
-	
+
 	if (it != eventListeners_.end())
 	{
 		eventListeners_.erase( it );
