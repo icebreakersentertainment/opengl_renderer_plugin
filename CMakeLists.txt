@@ -34,6 +34,8 @@ include_directories(include)
 
 # Source
 file(GLOB_RECURSE SOURCES "src/*.cpp")
+list(APPEND SOURCES "${ICEENGINE_BASE_DIR}/src/exceptions/Exception.cpp")
+list(APPEND SOURCES "${ICEENGINE_BASE_DIR}/src/exceptions/Stacktrace.cpp")
 
 add_library(opengl_renderer_plugin SHARED ${SOURCES})
 

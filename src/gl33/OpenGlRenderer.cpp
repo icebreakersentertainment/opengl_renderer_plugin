@@ -9,6 +9,7 @@
 
 #include "detail/Assert.hpp"
 #include "detail/GenerateVertices.hpp"
+#include "detail/GenerateCube.hpp"
 
 #define GLM_FORCE_RADIANS
 #include <glm/gtc/matrix_transform.hpp>
@@ -52,6 +53,7 @@ inline GLint getOpenGlImageFormat( int32 format )
 
 ShaderProgramHandle lineShaderProgramHandle_;
 ShaderProgramHandle lightingShaderProgramHandle_;
+ShaderProgramHandle skyboxShaderProgramHandle_;
 ShaderProgramHandle deferredLightingGeometryPassProgramHandle_;
 ShaderProgramHandle deferredLightingTerrainGeometryPassProgramHandle_;
 FrameBuffer frameBuffer_;
@@ -201,6 +203,12 @@ void OpenGlRenderer::initializeOpenGlShaderPrograms()
 	auto lightingFragmentShaderHandle = createFragmentShader(loadShaderContents("lighting.frag"));
 
 	lightingShaderProgramHandle_ = createShaderProgram(lightingVertexShaderHandle, lightingFragmentShaderHandle);
+
+	// Skybox shader program
+	auto skyboxVertexShaderHandle = createVertexShader(loadShaderContents("skybox.vert"));
+	auto skyboxFragmentShaderHandle = createFragmentShader(loadShaderContents("skybox.frag"));
+
+	skyboxShaderProgramHandle_ = createShaderProgram(skyboxVertexShaderHandle, skyboxFragmentShaderHandle);
 
 	std::string depthDebugVertexShader = R"(
 #version 330 core
@@ -405,7 +413,7 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 
 	// Rendered depth from lights perspective
 	glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	glm::mat4 lightProjection, lightView;
 	glm::mat4 lightSpaceMatrix;
@@ -700,6 +708,66 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 	glBlitFramebuffer(0, 0, width_, height_, 0, 0, width_, height_, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
 
 	FrameBuffer::unbind();
+
+	// Skybox pass
+	// glDepthMask(GL_FALSE);
+	glDepthFunc(GL_LEQUAL);
+
+	auto& skyboxShaderProgram = shaderPrograms_[skyboxShaderProgramHandle_];
+	skyboxShaderProgram.use();
+
+	auto projectionMatrixLocation = glGetUniformLocation(skyboxShaderProgram, "projectionMatrix");
+	auto viewMatrixLocation = glGetUniformLocation(skyboxShaderProgram, "viewMatrix");
+
+	ASSERT(projectionMatrixLocation >= 0);
+	ASSERT(viewMatrixLocation >= 0);
+
+	ASSERT_GL_ERROR();
+
+	for (auto& s : renderScene.skyboxes)
+	{
+		// glm::mat4 newModel = glm::translate(model_, s.graphicsData.position);
+		// newModel = newModel * glm::mat4_cast( s.graphicsData.orientation );
+		// newModel = glm::scale(newModel, s.graphicsData.scale);
+
+		// Send uniform variable values to the shader
+		// const glm::mat4 pvmMatrix(projection_ * view_ * newModel);
+		// glUniformMatrix4fv(pvmMatrixLocation, 1, GL_FALSE, &pvmMatrix[0][0]);
+
+		//glm::mat3 normalMatrix = glm::inverse(glm::transpose(glm::mat3(view_ * newModel)));
+		//glUniformMatrix3fv(normalMatrixLocation, 1, GL_FALSE, &normalMatrix[0][0]);
+
+		// original source: https://learnopengl.com/Advanced-OpenGL/Cubemaps
+		const glm::mat4 newView = glm::mat4(glm::mat3(view_));
+		glUniformMatrix4fv(projectionMatrixLocation, 1, GL_FALSE, &projection_[0][0]);
+		glUniformMatrix4fv(viewMatrixLocation, 1, GL_FALSE, &newView[0][0]);
+
+		// if (s.ubo.id > 0)
+		// {
+		// 	//const int bonesLocation = glGetUniformLocation(deferredLightingGeometryPassShaderProgram, "bones");
+		// 	//assert( bonesLocation >= 0);
+		// 	//glBindBufferBase(GL_UNIFORM_BUFFER, bonesLocation, r.ubo.id);
+		// 	glBindBufferBase(GL_UNIFORM_BUFFER, 0, t.ubo.id);
+		// }
+
+		auto& skybox = skyboxes_[s.skyboxHandle];
+
+		TextureCubeMap::activate(0);
+		skybox.textureCubeMap.bind();
+
+		glBindVertexArray(s.vao.id);
+		glDrawElements(s.vao.ebo.mode, s.vao.ebo.count, s.vao.ebo.type, 0);
+		glBindVertexArray(0);
+
+		ASSERT_GL_ERROR();
+	}
+
+	// FrameBuffer::unbind();
+
+	// glDepthMask(GL_TRUE);
+	glDepthFunc(GL_LESS);
+
+	ASSERT_GL_ERROR();
 
 	/*
 	// Debug draw
@@ -1253,7 +1321,7 @@ TerrainHandle OpenGlRenderer::createStaticTerrain(
 
 	std::vector<glm::vec3> vertices;
 	std::vector<uint32> indices;
-	std::tie(vertices, indices) = detail::generateGrid(256);
+	std::tie(vertices, indices) = detail::generateGrid(terrain.width, terrain.height);
 
 	auto meshHandle = createStaticMesh(vertices, indices, {}, {}, {});
 	terrain.vao = meshes_[meshHandle];
@@ -1262,7 +1330,39 @@ TerrainHandle OpenGlRenderer::createStaticTerrain(
 }
 void OpenGlRenderer::destroy(const TerrainHandle& terrainHandle)
 {
-	//terrains_.destroy(handle);
+	// terrains_.destroy(terrainHandle);
+}
+
+SkyboxHandle OpenGlRenderer::createStaticSkybox(const IImage& back, const IImage& down, const IImage& front, const IImage& left, const IImage& right, const IImage& up)
+{
+	auto handle = skyboxes_.create();
+	auto& skybox = skyboxes_[handle];
+
+	skybox.width = back.width();
+	skybox.height = back.height();
+
+	skybox.textureCubeMap = TextureCubeMap();
+
+	skybox.textureCubeMap.generate(GL_RGBA, skybox.width, skybox.height, GL_RGBA, GL_UNSIGNED_BYTE, &back.data()[0], &down.data()[0], &front.data()[0], &left.data()[0], &right.data()[0], &up.data()[0]);
+	skybox.textureCubeMap.bind();
+
+	std::vector<glm::vec3> vertices;
+	std::vector<uint32> indices;
+	std::tie(vertices, indices) = detail::generateCube();
+
+	auto meshHandle = createStaticMesh(vertices, indices, {}, {}, {});
+	skybox.vao = meshes_[meshHandle];
+
+	return handle;
+}
+
+void OpenGlRenderer::destroy(const SkyboxHandle& skyboxHandle)
+{
+	// const auto& skybox = skyboxes_[skyboxHandle];
+	//
+	// destroy(skybox.meshHandle);
+	//
+	// skyboxes_.destroy(skyboxHandle);
 }
 
 std::string OpenGlRenderer::loadShaderContents(const std::string& filename) const
@@ -1485,6 +1585,31 @@ void OpenGlRenderer::destroy(const RenderSceneHandle& renderSceneHandle, const T
 {
 	auto& renderScene = renderSceneHandles_[renderSceneHandle];
 	renderScene.terrain.destroy(terrainRenderableHandle);
+}
+
+SkyboxRenderableHandle OpenGlRenderer::createSkyboxRenderable(const RenderSceneHandle& renderSceneHandle, const SkyboxHandle& skyboxHandle)
+{
+	auto& renderScene = renderSceneHandles_[renderSceneHandle];
+	auto handle = renderScene.skyboxes.create();
+	auto& skyboxRenderable = renderScene.skyboxes[handle];
+
+	const auto& skybox = skyboxes_[skyboxHandle];
+
+	skyboxRenderable.vao = skybox.vao;
+	skyboxRenderable.skyboxHandle = skyboxHandle;
+
+	// skyboxRenderable.graphicsData.position = glm::vec3(0.0f, 0.0f, 0.0f) + glm::vec3(-(float32)skybox.width/2.0f, 0.0f, -(float32)skybox.height/2.0f);
+	skyboxRenderable.graphicsData.position = glm::vec3();
+	skyboxRenderable.graphicsData.scale = glm::vec3(1.0f, 1.0f, 1.0f);
+	skyboxRenderable.graphicsData.orientation = glm::quat();
+
+	return handle;
+}
+
+void OpenGlRenderer::destroy(const RenderSceneHandle& renderSceneHandle, const SkyboxRenderableHandle& skyboxRenderableHandle)
+{
+	auto& renderScene = renderSceneHandles_[renderSceneHandle];
+	renderScene.skyboxes.destroy(skyboxRenderableHandle);
 }
 
 void OpenGlRenderer::rotate(const CameraHandle& cameraHandle, const glm::quat& quaternion, const TransformSpace& relativeTo)
@@ -1848,6 +1973,12 @@ Event OpenGlRenderer::convertSdlEvent(const SDL_Event& event)
 			e.window.windowId = event.window.windowID;
 			e.window.data1 = event.window.data1;
 			e.window.data2 = event.window.data2;
+			break;
+
+		case SDL_TEXTINPUT:
+			e.type = TEXTINPUT;
+            e.window.timestamp = event.window.timestamp;
+            strncpy(&e.text.text[0], &event.text.text[0], TEXTINPUTEVENT_TEXT_SIZE);
 			break;
 
 		case SDL_KEYDOWN:
