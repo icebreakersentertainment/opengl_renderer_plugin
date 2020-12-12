@@ -7,9 +7,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(OPENGL_RENDERER_PLUGIN_COMPILER_FLAGS "")
 set(OPENGL_RENDERER_PLUGIN_DEFINITIONS "")
 if(MSVC)
-  set(OPENGL_RENDERER_PLUGIN_COMPILER_FLAGS "/EHsc /MP")
+  list(APPEND OPENGL_RENDERER_PLUGIN_COMPILER_FLAGS /EHsc /MP)
   if(CMAKE_BUILD_TYPE MATCHES DEBUG)
-    set(OPENGL_RENDERER_PLUGIN_COMPILER_FLAGS "/EHsc /MP")
+    list(APPEND OPENGL_RENDERER_PLUGIN_COMPILER_FLAGS /EHsc /MP)
   endif()
 endif()
 
@@ -52,4 +52,4 @@ target_link_libraries(opengl_renderer_plugin glew)
 target_link_libraries(opengl_renderer_plugin SDL2)
 
 # Copy our shaders
-file(COPY ./include//gl33/shaders DESTINATION ./)
+file(COPY ./include/gl33/shaders DESTINATION ./)

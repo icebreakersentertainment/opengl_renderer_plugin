@@ -159,14 +159,14 @@ void OpenGlRenderer::initialize()
 	for (unsigned int i = 0; i < NR_LIGHTS; i++)
 	{
 		// calculate slightly random offsets
-		float xPos = ((rand() % 100) / 100.0) * 6.0 - 3.0;
-		float yPos = ((rand() % 100) / 100.0) * 6.0 - 4.0;
-		float zPos = ((rand() % 100) / 100.0) * 6.0 - 3.0;
+		float xPos = ((rand() % 100) / 100.0f) * 6.0f - 3.0f;
+		float yPos = ((rand() % 100) / 100.0f) * 6.0f - 4.0f;
+		float zPos = ((rand() % 100) / 100.0f) * 6.0f - 3.0f;
 		lightPositions_.push_back(glm::vec3(xPos, yPos, zPos));
 		// also calculate random color
-		float rColor = ((rand() % 100) / 200.0f) + 0.5; // between 0.5 and 1.0
-		float gColor = ((rand() % 100) / 200.0f) + 0.5; // between 0.5 and 1.0
-		float bColor = ((rand() % 100) / 200.0f) + 0.5; // between 0.5 and 1.0
+		float rColor = ((rand() % 100) / 200.0f) + 0.5f; // between 0.5 and 1.0
+		float gColor = ((rand() % 100) / 200.0f) + 0.5f; // between 0.5 and 1.0
+		float bColor = ((rand() % 100) / 200.0f) + 0.5f; // between 0.5 and 1.0
 		lightColors_.push_back(glm::vec3(rColor, gColor, bColor));
 	}
 
@@ -413,7 +413,7 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 
 	// Rendered depth from lights perspective
 	glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	glm::mat4 lightProjection, lightView;
 	glm::mat4 lightSpaceMatrix;
@@ -684,11 +684,11 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 		glUniform3fv(glGetUniformLocation(lightingShaderProgram, ("lights[" + std::to_string(0) + "].Position").c_str()), 1, &light.position.x);
 		glUniform3fv(glGetUniformLocation(lightingShaderProgram, ("lights[" + std::to_string(0) + "].Color").c_str()), 1, &lightColors_[0].x);
 		// update attenuation parameters and calculate radius
-		const float constant = 1.0; // note that we don't send this to the shader, we assume it is always 1.0 (in our case)
-		//const float linear = 0.7;
-		//const float quadratic = 1.8;
-		const float linear = 0.05;
-		const float quadratic = 0.05;
+		const float constant = 1.0f; // note that we don't send this to the shader, we assume it is always 1.0 (in our case)
+		//const float linear = 0.7f;
+		//const float quadratic = 1.8f;
+		const float linear = 0.05f;
+		const float quadratic = 0.05f;
 		glUniform1f(glGetUniformLocation(lightingShaderProgram, ("lights[" + std::to_string(0) + "].Linear").c_str()), linear);
 		glUniform1f(glGetUniformLocation(lightingShaderProgram, ("lights[" + std::to_string(0) + "].Quadratic").c_str()), quadratic);
 	}
@@ -836,18 +836,30 @@ void OpenGlRenderer::renderLines(const std::vector<std::tuple<glm::vec3, glm::ve
 
 	auto size = lineData2.size() * (4 * sizeof(glm::vec3));
 	if (!VBO || size > lastSize)
-	{
-		glDeleteBuffers(1, &VBO);
-		glDeleteVertexArrays(1, &VAO);
-		glGenBuffers(1, &VBO);
-		glGenVertexArrays(1, &VAO);
+    {
+        glDeleteBuffers(1, &VBO);
+        glDeleteVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
+        glGenVertexArrays(1, &VAO);
+    }
 
-		lastSize = size;
-	}
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
 
-	glBindVertexArray(VAO);
-	glBindBuffer(GL_ARRAY_BUFFER, VBO);
-	glBufferData(GL_ARRAY_BUFFER, size, &lineData2[0], GL_DYNAMIC_DRAW);
+    if (size > lastSize)
+    {
+        glBufferData(GL_ARRAY_BUFFER, size, &lineData2[0], GL_DYNAMIC_DRAW);
+
+        lastSize = size;
+    }
+    else
+    {
+        glBufferSubData(GL_ARRAY_BUFFER, 0, lineData2.size() * (4 * sizeof(glm::vec3)), &lineData2[0]);
+    }
+
+//	glBindVertexArray(VAO);
+//	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+//	glBufferData(GL_ARRAY_BUFFER, size, &lineData2[0], GL_DYNAMIC_DRAW);
 
 //	glBufferSubData(GL_ARRAY_BUFFER, 0, lineData2.size() * 4 * sizeof(glm::vec3), &lineData2[0]);
 
@@ -867,13 +879,13 @@ void OpenGlRenderer::renderLines(const std::vector<std::tuple<glm::vec3, glm::ve
 	glUniformMatrix4fv(viewMatrixLocation, 1, GL_FALSE, &view_[0][0]);
 
 //	glBindVertexArray(VAO);
-	glDrawArrays(GL_LINES, 0, 4 * lineData2.size());
+	glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(4 * lineData2.size()));
 	glBindVertexArray(0);
 }
 
 void OpenGlRenderer::endRender()
 {
-	SDL_GL_SwapWindow( sdlWindow_ );
+	SDL_GL_SwapWindow(sdlWindow_);
 }
 
 RenderSceneHandle OpenGlRenderer::createRenderScene()
@@ -943,22 +955,22 @@ MeshHandle OpenGlRenderer::createStaticMesh(
 	glBindBuffer(GL_ARRAY_BUFFER, vao.vbo[0].id);
 	glBufferData(GL_ARRAY_BUFFER, size, nullptr, GL_STATIC_DRAW);
 
-	auto offset = 0;
+    GLintptr offset = 0;
 	glBufferSubData(GL_ARRAY_BUFFER, offset, vertices.size() * sizeof(glm::vec3), &vertices[0]);
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
 	glEnableVertexAttribArray(0);
 
-	offset += vertices.size() * sizeof(glm::vec3);
+	offset += static_cast<GLintptr>(vertices.size() * sizeof(glm::vec3));
 	glBufferSubData(GL_ARRAY_BUFFER, offset, colors.size() * sizeof(glm::vec4), &colors[0]);
 	glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, (GLvoid*)(offset));
 	glEnableVertexAttribArray(1);
 
-	offset += colors.size() * sizeof(glm::vec4);
+	offset += static_cast<GLintptr>(colors.size() * sizeof(glm::vec4));
 	glBufferSubData(GL_ARRAY_BUFFER, offset, normals.size() * sizeof(glm::vec3), &normals[0]);
 	glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, (GLvoid*)(offset));
 	glEnableVertexAttribArray(2);
 
-	offset += normals.size() * sizeof(glm::vec3);
+	offset += static_cast<GLintptr>(normals.size() * sizeof(glm::vec3));
 	glBufferSubData(GL_ARRAY_BUFFER, offset, textureCoordinates.size() * sizeof(glm::vec2), &textureCoordinates[0]);
 	glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, 0, (GLvoid*)(offset));
 	glEnableVertexAttribArray(3);
@@ -968,7 +980,7 @@ MeshHandle OpenGlRenderer::createStaticMesh(
 
 	glBindVertexArray(0);
 
-	vao.ebo.count = indices.size();
+	vao.ebo.count = static_cast<GLsizei>(indices.size());
 	vao.ebo.mode = GL_TRIANGLES;
 	vao.ebo.type =  GL_UNSIGNED_INT;
 
@@ -1058,12 +1070,12 @@ SkeletonHandle OpenGlRenderer::createSkeleton(const MeshHandle& meshHandle, cons
 	glBindBuffer(GL_ARRAY_BUFFER, vao.vbo[1].id);
 	glBufferData(GL_ARRAY_BUFFER, size, nullptr, GL_STATIC_DRAW);
 
-	auto offset = 0;
+    GLintptr offset = 0;
 	glBufferSubData(GL_ARRAY_BUFFER, offset, skeleton->boneIds().size() * sizeof(glm::ivec4), &skeleton->boneIds()[0]);
 	glVertexAttribIPointer(4, 4, GL_INT, 0, 0);
 	glEnableVertexAttribArray(4);
 
-	offset += skeleton->boneIds().size() * sizeof(glm::vec4);
+	offset += static_cast<GLintptr>(skeleton->boneIds().size() * sizeof(glm::vec4));
 	glBufferSubData(GL_ARRAY_BUFFER, offset, skeleton->boneWeights().size() * sizeof(glm::vec4), &skeleton->boneWeights()[0]);
 	glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, 0, (GLvoid*)(offset));
 	glEnableVertexAttribArray(5);
@@ -1321,7 +1333,7 @@ TerrainHandle OpenGlRenderer::createStaticTerrain(
 
 	std::vector<glm::vec3> vertices;
 	std::vector<uint32> indices;
-	std::tie(vertices, indices) = detail::generateGrid(terrain.width, terrain.height);
+	std::tie(vertices, indices) = detail::generateGrid(terrain.width - 1, terrain.height - 1);
 
 	auto meshHandle = createStaticMesh(vertices, indices, {}, {}, {});
 	terrain.vao = meshes_[meshHandle];
@@ -1367,15 +1379,11 @@ void OpenGlRenderer::destroy(const SkyboxHandle& skyboxHandle)
 
 std::string OpenGlRenderer::loadShaderContents(const std::string& filename) const
 {
-	const std::string shaderDirectory = properties_->getStringValue("graphics.shaderDirectory", "shaders");
+	LOG_DEBUG(logger_, (std::string("Loading shader: ") + filename))
 
-	auto path = shaderDirectory + fileSystem_->getDirectorySeperator() + filename;
+	if (!fileSystem_->exists(filename)) throw std::runtime_error("Shader with filename '" + filename + "' does not exist.");
 
-	LOG_DEBUG(logger_, (std::string("Loading shader: ") + path))
-
-	if (!fileSystem_->exists(path)) throw std::runtime_error("Shader with filename '" + path + "' does not exist.");
-
-	auto file = fileSystem_->open(path, fs::FileFlags::READ | fs::FileFlags::BINARY);
+	auto file = fileSystem_->open(filename, fs::FileFlags::READ | fs::FileFlags::BINARY);
 	return file->readAll();
 }
 
@@ -1911,6 +1919,11 @@ void OpenGlRenderer::setMouseRelativeMode(const bool enabled)
 void OpenGlRenderer::setWindowGrab(const bool enabled)
 {
 	SDL_SetWindowGrab(sdlWindow_, static_cast<SDL_bool>(enabled));
+}
+
+bool OpenGlRenderer::cursorVisible() const
+{
+    return SDL_ShowCursor(SDL_QUERY) == SDL_ENABLE;
 }
 
 void OpenGlRenderer::setCursorVisible(const bool visible)
@@ -3066,48 +3079,28 @@ ScanCode OpenGlRenderer::convertSdlScancode(const SDL_Scancode& sdlScancode)
 	}
 }
 
-KeyMod OpenGlRenderer::convertSdlKeymod(const uint16 sdlKeymod)
+uint16 OpenGlRenderer::convertSdlKeymod(const uint16 sdlKeymod)
 {
-	switch(sdlKeymod)
-	{
-		case KMOD_NONE:
-			return KEYMOD_NONE;
-		case KMOD_LSHIFT:
-			return KEYMOD_LSHIFT;
-		case KMOD_RSHIFT:
-			return KEYMOD_RSHIFT;
-		case KMOD_LCTRL:
-			return KEYMOD_LCTRL;
-		case KMOD_RCTRL:
-			return KEYMOD_RCTRL;
-		case KMOD_LALT:
-			return KEYMOD_LALT;
-		case KMOD_RALT:
-			return KEYMOD_RALT;
-		case KMOD_LGUI:
-			return KEYMOD_LGUI;
-		case KMOD_RGUI:
-			return KEYMOD_RGUI;
-		case KMOD_NUM:
-			return KEYMOD_NUM;
-		case KMOD_CAPS:
-			return KEYMOD_CAPS;
-		case KMOD_MODE:
-			return KEYMOD_MODE;
-		case KMOD_RESERVED:
-			return KEYMOD_RESERVED;
-		case KMOD_CTRL:
-			return KEYMOD_CTRL;
-		case KMOD_SHIFT:
-			return KEYMOD_SHIFT;
-		case KMOD_ALT:
-			return KEYMOD_ALT;
-		case KMOD_GUI:
-			return KEYMOD_GUI;
+    uint16 keymod = 0;
+    keymod = keymod | (sdlKeymod & KMOD_NONE ? KEYMOD_NONE : KEYMOD_NONE);
+    keymod = keymod | (sdlKeymod & KMOD_LSHIFT ? KEYMOD_LSHIFT : KEYMOD_NONE);
+    keymod = keymod | (sdlKeymod & KMOD_RSHIFT ? KEYMOD_RSHIFT : KEYMOD_NONE);
+    keymod = keymod | (sdlKeymod & KMOD_LCTRL ? KEYMOD_LCTRL : KEYMOD_NONE);
+    keymod = keymod | (sdlKeymod & KMOD_RCTRL ? KEYMOD_RCTRL : KEYMOD_NONE);
+    keymod = keymod | (sdlKeymod & KMOD_LALT ? KEYMOD_LALT : KEYMOD_NONE);
+    keymod = keymod | (sdlKeymod & KMOD_RALT ? KEYMOD_RALT : KEYMOD_NONE);
+    keymod = keymod | (sdlKeymod & KMOD_LGUI ? KEYMOD_LGUI : KEYMOD_NONE);
+    keymod = keymod | (sdlKeymod & KMOD_RGUI ? KEYMOD_RGUI : KEYMOD_NONE);
+    keymod = keymod | (sdlKeymod & KMOD_NUM ? KEYMOD_NUM : KEYMOD_NONE);
+    keymod = keymod | (sdlKeymod & KMOD_CAPS ? KEYMOD_CAPS : KEYMOD_NONE);
+    keymod = keymod | (sdlKeymod & KMOD_MODE ? KEYMOD_MODE : KEYMOD_NONE);
+    keymod = keymod | (sdlKeymod & KMOD_RESERVED ? KEYMOD_RESERVED : KEYMOD_NONE);
+    keymod = keymod | (sdlKeymod & KMOD_CTRL ? KEYMOD_CTRL : KEYMOD_NONE);
+    keymod = keymod | (sdlKeymod & KMOD_SHIFT ? KEYMOD_SHIFT : KEYMOD_NONE);
+    keymod = keymod | (sdlKeymod & KMOD_ALT ? KEYMOD_ALT : KEYMOD_NONE);
+    keymod = keymod | (sdlKeymod & KMOD_GUI ? KEYMOD_GUI : KEYMOD_NONE);
 
-		default:
-			return KEYMOD_NONE;
-	}
+    return keymod;
 }
 
 void OpenGlRenderer::addEventListener(IEventListener* eventListener)

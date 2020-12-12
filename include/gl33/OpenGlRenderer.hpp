@@ -304,7 +304,8 @@ public:
 
 	virtual void setMouseRelativeMode(const bool enabled) override;
 	virtual void setWindowGrab(const bool enabled) override;
-	virtual void setCursorVisible(const bool visible) override;
+    bool cursorVisible() const override;
+    virtual void setCursorVisible(const bool visible) override;
 
 	virtual void processEvents() override;
 	virtual void addEventListener(IEventListener* eventListener) override;
@@ -367,7 +368,7 @@ private:
 	static WindowEventType convertSdlWindowEventId(const uint8 windowEventId);
 	static KeySym convertSdlKeySym(const SDL_Keysym& keySym);
 	static ScanCode convertSdlScancode(const SDL_Scancode& sdlScancode);
-	static KeyMod convertSdlKeymod(const uint16 sdlKeymod);
+	static uint16 convertSdlKeymod(const uint16 sdlKeymod);
 	static KeyCode convertSdlKeycode(const SDL_Keycode& sdlKeycode);
 };
 

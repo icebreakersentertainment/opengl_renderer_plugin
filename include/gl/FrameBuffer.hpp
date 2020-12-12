@@ -88,7 +88,7 @@ public:
 		
 		// GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, ...
 		std::vector<GLuint> attachments;
-		for (uint32 i=0; i < numAttachments_; i++)
+		for (int i=0; i < numAttachments_; ++i)
 		{
 			attachments.push_back(GL_COLOR_ATTACHMENT0 + i);
 		}
