@@ -107,20 +107,23 @@ void OpenGlRenderer::initialize()
 	width_ = properties_->getIntValue(std::string("window.width"), 1024);
 	height_ = properties_->getIntValue(std::string("window.height"), 768);
 
-	LOG_INFO(logger_, std::string("Width and height set to ") + std::to_string(width_) + " x " + std::to_string(height_));
+	LOG_INFO(logger_, "Width and height set to %s x %s", width_, height_);
 
-	if (SDL_Init(SDL_INIT_VIDEO) != 0)
-	{
-		auto message = std::string("Unable to initialize SDL: ") + SDL_GetError();
-		throw std::runtime_error(message);
-	}
+	if (SDL_Init(SDL_INIT_VIDEO) != 0) throw std::runtime_error(std::string("Unable to initialize SDL: ") + SDL_GetError());
 
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+	const int glMajorVersion = 3;
+	const int glMinorVersion = 3;
 
-	auto windowTitle = properties_->getStringValue("window.title", "Ice Engine");
+    LOG_INFO(logger_, "OpenGL requesting core profile version %s.%s", glMajorVersion, glMinorVersion);
+
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, glMajorVersion);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, glMinorVersion);
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+
+	const auto windowTitle = properties_->getStringValue("window.title", "Ice Engine");
+
+    LOG_INFO(logger_, "Setting window title to %s", windowTitle);
 
 	uint32 flags = SDL_WINDOW_OPENGL;
 
@@ -128,20 +131,69 @@ void OpenGlRenderer::initialize()
 	if (properties_->getBoolValue("window.resizable", false)) flags |= SDL_WINDOW_RESIZABLE;
 	if (properties_->getBoolValue("window.maximized", false)) flags |= SDL_WINDOW_MAXIMIZED;
 
+    LOG_INFO(logger_, "Creating window using flags %s", flags);
+
 	sdlWindow_ = SDL_CreateWindow(windowTitle.c_str(), 50, 50, width_, height_, flags);
 
 	if (sdlWindow_ == nullptr) throw std::runtime_error(std::string("Unable to create window: ") + SDL_GetError());
+
+    const int numVideoDrivers = SDL_GetNumVideoDrivers();
+
+    if (numVideoDrivers >= 1)
+    {
+        LOG_INFO(logger_, "Found %s video driver(s)", numVideoDrivers);
+
+        for (int i = 0; i < numVideoDrivers; ++i)
+        {
+            LOG_INFO(logger_, "Video driver %s: %s", i, SDL_GetVideoDriver(i));
+        }
+    }
+    else
+    {
+        LOG_WARN(logger_, "Unable to query number of video drivers: %s", SDL_GetError());
+    }
+
+    LOG_INFO(logger_, "Creating OpenGL context");
 
 	openglContext_ = SDL_GL_CreateContext(sdlWindow_);
 
 	if (openglContext_ == nullptr) throw std::runtime_error(std::string("Unable to create OpenGL context: ") + SDL_GetError());
 
+    LOG_INFO(logger_, "OpenGL version: %s", glGetString(GL_VERSION));
+    LOG_INFO(logger_, "OpenGL vendor: %s", glGetString(GL_VENDOR));
+    LOG_INFO(logger_, "OpenGL renderer: %s", glGetString(GL_RENDERER));
+    LOG_INFO(logger_, "OpenGL shading language: %s", glGetString(GL_SHADING_LANGUAGE_VERSION));
+
+    glewExperimental = GL_TRUE; // Needed in core profile
+
+    LOG_INFO(logger_, "Initializing GLEW");
+
+    const GLenum glewErr = glewInit();
+
+    if (glewErr != GLEW_OK)
+    {
+        std::stringstream ss;
+        ss << "Failed to initialize GLEW: " << glewGetErrorString(glewErr);
+        throw std::runtime_error(ss.str());
+    }
+
+    LOG_INFO(logger_, "GLEW version: %s", glewGetString(GLEW_VERSION));
+
+    GLint numGlExtensions = 0;
+    glGetIntegerv(GL_NUM_EXTENSIONS, &numGlExtensions);
+
+    LOG_INFO(logger_, "Found %s OpenGL extension(s)", numGlExtensions);
+
+    std::stringstream ssGlExtensions;
+    for (GLint i = 0; i < numGlExtensions; ++i)
+    {
+        ssGlExtensions << (i > 0 ? " " : "") << glGetStringi(GL_EXTENSIONS, i);
+    }
+
+    LOG_INFO(logger_, "OpenGL extension(s): %s", ssGlExtensions.str());
+
 	const bool vsync = properties_->getBoolValue("window.vsync", false);
 	SDL_GL_SetSwapInterval(vsync ? 1 : 0);
-
-	glewExperimental = GL_TRUE; // Needed in core profile
-
-	if (glewInit() != GLEW_OK) throw std::runtime_error("Failed to initialize GLEW.");
 
 	SDL_GL_GetDrawableSize(sdlWindow_, reinterpret_cast<int*>(&width_), reinterpret_cast<int*>(&height_));
 
