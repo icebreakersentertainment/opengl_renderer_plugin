@@ -32,7 +32,7 @@ public:
 		if (id_ == INVALID_ID)
 		{
             const auto e = getGlError();
-			throw GraphicsException(std::string("Could not create texture cube map: ") + e.value());
+			throw GraphicsException(std::string("Could not create texture cube map: ") + e->codeString);
 		}
 
 		bind();

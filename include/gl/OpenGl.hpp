@@ -18,24 +18,33 @@ namespace gl
 
 #define ASSERT_GL_ERROR() checkGlError(__FILE__, __LINE__);
 
-inline boost::optional<std::string> getGlError()
+struct GlError
 {
-    GLenum err(glGetError());
+    GLenum code = GL_NO_ERROR;
+    std::string codeString = "GL_NO_ERROR";
+};
 
-    if (err != GL_NO_ERROR)
+inline boost::optional<GlError> getGlError()
+{
+    const GLenum error = glGetError();
+
+    if (error != GL_NO_ERROR)
     {
-        std::string error;
+        GlError e;
+        e.code = error;
 
-        switch (err)
+        switch (error)
         {
-            case GL_INVALID_OPERATION:	  			error = "INVALID_OPERATION";				break;
-            case GL_INVALID_ENUM:		  			error = "INVALID_ENUM";		  				break;
-            case GL_INVALID_VALUE:		  			error = "INVALID_VALUE";		  			break;
-            case GL_OUT_OF_MEMORY:		 			error = "OUT_OF_MEMORY";		  			break;
-            case GL_INVALID_FRAMEBUFFER_OPERATION:  error = "INVALID_FRAMEBUFFER_OPERATION";	break;
+            case GL_INVALID_OPERATION:	  			e.codeString = "INVALID_OPERATION";				break;
+            case GL_INVALID_ENUM:		  			e.codeString = "INVALID_ENUM";		  			break;
+            case GL_INVALID_VALUE:		  			e.codeString = "INVALID_VALUE";		  			break;
+            case GL_OUT_OF_MEMORY:		 			e.codeString = "OUT_OF_MEMORY";		  			break;
+            case GL_INVALID_FRAMEBUFFER_OPERATION:  e.codeString = "INVALID_FRAMEBUFFER_OPERATION";	break;
+
+            default:                                e.codeString = "Unknown";                       break;
         }
 
-        return std::string("GL_") + error;
+        return e;
     }
 
     return boost::none;
@@ -45,20 +54,14 @@ inline void checkGlError(const std::string& filename, const int line)
 {
     const auto e = getGlError();
 
-    if (e)
-    {
-        throw std::runtime_error(filename + " (" + std::to_string(line) + "): " + std::string("GL_") + e.value());
-    }
+    if (e) throw std::runtime_error(filename + " (" + std::to_string(line) + "): " + e->codeString);
 }
 
 inline void checkGlError()
 {
     const auto e = getGlError();
 
-    if (e)
-    {
-        throw std::runtime_error(std::string("GL_") + e.value());
-    }
+    if (e) throw std::runtime_error(e->codeString);
 }
 
 }

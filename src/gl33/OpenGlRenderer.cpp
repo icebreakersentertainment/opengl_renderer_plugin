@@ -1,20 +1,31 @@
 #include <algorithm>
 #include <sstream>
 #include <cstring>
+#include <unordered_map>
+#include <utility>
+#include <chrono>
 #include <exception>
 #include <stdexcept>
 #include <system_error>
+
+#include <boost/algorithm/string/join.hpp>
+
+#define GLM_FORCE_RADIANS
+#include <glm/gtc/matrix_transform.hpp>
+#include "glm/gtx/quaternion.hpp"
+#include <glm/gtx/string_cast.hpp>
 
 #include "gl33/OpenGlRenderer.hpp"
 
 #include "detail/Assert.hpp"
 #include "detail/GenerateVertices.hpp"
 #include "detail/GenerateCube.hpp"
+#include "detail/Validation.hpp"
+#include "detail/DebugSerializer.hpp"
 
-#define GLM_FORCE_RADIANS
-#include <glm/gtc/matrix_transform.hpp>
-#include "glm/gtx/quaternion.hpp"
-#include <glm/gtx/string_cast.hpp>
+#include "exceptions/RuntimeException.hpp"
+#include "exceptions/InvalidArgumentException.hpp"
+#include "exceptions/FileNotFoundException.hpp"
 
 namespace ice_engine
 {
@@ -24,6 +35,144 @@ namespace opengl_renderer
 {
 namespace gl33
 {
+namespace
+{
+void MessageCallback(
+        GLenum source,
+        GLenum type,
+        GLuint id,
+        GLenum severity,
+        GLsizei length,
+        const GLchar* message,
+        const void* userParam
+)
+{
+    static std::unordered_map<
+        std::string,
+        std::pair<uint32, std::chrono::time_point<std::chrono::high_resolution_clock>>
+    > debounceMap;
+    static const float32 DEBOUNCE_INTERVAL_IN_SECONDS = 5.0f;
+
+    auto now = std::chrono::high_resolution_clock::now();
+
+    // remove anything old in debounceMap
+    for (auto it = debounceMap.begin(); it != debounceMap.end(); )
+    {
+        // after DEBOUNCE_INTERVAL_IN_SECONDS seconds, we can log the message again
+        if (std::chrono::duration<float32>(now - it->second.second).count() > DEBOUNCE_INTERVAL_IN_SECONDS)
+        {
+            if (it->second.first > 0)
+            {
+                GLOBAL_LOG_ERROR("Skipped %s duplicate log messages", it->second.first);
+            }
+
+            it = debounceMap.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    // perform debounce
+    const auto it = debounceMap.find(message);
+    if (it != debounceMap.end())
+    {
+        ++it->second.first;
+        return;
+    }
+
+    // insert into debounce map
+    debounceMap[message] = {0, std::chrono::high_resolution_clock::now()};
+
+    std::string severityAsString;
+
+    switch (severity)
+    {
+        case GL_DEBUG_SEVERITY_LOW:
+            severityAsString = "GL_DEBUG_SEVERITY_LOW";
+            break;
+
+        case GL_DEBUG_SEVERITY_MEDIUM:
+            severityAsString = "GL_DEBUG_SEVERITY_MEDIUM";
+            break;
+
+        case GL_DEBUG_SEVERITY_HIGH:
+            severityAsString = "GL_DEBUG_SEVERITY_HIGH";
+            break;
+
+        case GL_DEBUG_SEVERITY_NOTIFICATION:
+            severityAsString = "GL_DEBUG_SEVERITY_NOTIFICATION";
+            break;
+
+        default:
+            severityAsString = "Unknown";
+            break;
+    }
+
+    std::string typeAsString;
+
+    switch (type)
+    {
+        case GL_DEBUG_TYPE_ERROR:
+            typeAsString = "GL_DEBUG_TYPE_ERROR";
+            break;
+
+        case GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR:
+            typeAsString = "GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR";
+            break;
+
+        case GL_DEBUG_TYPE_PORTABILITY:
+            typeAsString = "GL_DEBUG_TYPE_PORTABILITY";
+            break;
+
+        case GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR:
+            typeAsString = "GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR";
+            break;
+
+        case GL_DEBUG_TYPE_MARKER:
+            typeAsString = "GL_DEBUG_TYPE_MARKER";
+            break;
+
+        case GL_DEBUG_TYPE_PERFORMANCE:
+            typeAsString = "GL_DEBUG_TYPE_PERFORMANCE";
+            break;
+
+        case GL_DEBUG_TYPE_PUSH_GROUP:
+            typeAsString = "GL_DEBUG_TYPE_PUSH_GROUP";
+            break;
+
+        case GL_DEBUG_TYPE_POP_GROUP:
+            typeAsString = "GL_DEBUG_TYPE_POP_GROUP";
+            break;
+
+        case GL_DEBUG_TYPE_OTHER:
+            typeAsString = "GL_DEBUG_TYPE_OTHER";
+            break;
+
+        default:
+            typeAsString = "Unknown";
+            break;
+    }
+
+    switch (type)
+    {
+        case GL_DEBUG_TYPE_ERROR:
+            GLOBAL_LOG_ERROR("Severity: %s, message: %s", severityAsString, message);
+            break;
+
+        case GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR:
+        case GL_DEBUG_TYPE_PORTABILITY:
+        case GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR:
+            GLOBAL_LOG_WARN("Type: %s, Severity: %s, message: %s", typeAsString, severityAsString, message);
+            break;
+
+        default:
+            GLOBAL_LOG_DEBUG("Type: %s, Severity: %s, message: %s", typeAsString, severityAsString, message);
+            break;
+    }
+}
+}
 
 /**
  * Will return the OpenGL compatible format of the given image Format 'format'.
@@ -81,6 +230,10 @@ OpenGlRenderer::OpenGlRenderer(utilities::Properties* properties, fs::IFileSyste
 	fileSystem_(fileSystem),
 	logger_(logger)
 {
+    setGlobalLogger(logger);
+
+    LOG_INFO(logger_, "Initializing OpenGL graphics engine.");
+
 	initialize();
 }
 
@@ -102,14 +255,114 @@ OpenGlRenderer::~OpenGlRenderer()
 	SDL_Quit();
 }
 
+void checkGlVersions(logger::ILogger* logger)
+{
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) throw GraphicsException(std::string("Unable to initialize SDL: ") + SDL_GetError());
+
+    // Minimum supported version
+    const int glMajorVersion = 3;
+    const int glMinorVersion = 3;
+
+    LOG_INFO(logger, "OpenGL checking core profile version %s.%s is available", glMajorVersion, glMinorVersion);
+
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, glMajorVersion);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, glMinorVersion);
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+
+    SDL_Window* sdlWindow = SDL_CreateWindow("", 0, 0, 0, 0, SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
+
+    if (sdlWindow == nullptr) throw GraphicsException(std::string("Unable to create window: ") + SDL_GetError());
+
+    const int numVideoDrivers = SDL_GetNumVideoDrivers();
+
+    if (numVideoDrivers >= 1)
+    {
+        LOG_INFO(logger, "Found %s video driver(s)", numVideoDrivers);
+
+        for (int i = 0; i < numVideoDrivers; ++i)
+        {
+            LOG_INFO(logger, "Video driver %s: %s", i, SDL_GetVideoDriver(i));
+        }
+    }
+    else
+    {
+        LOG_WARN(logger, "Unable to query number of video drivers: %s", SDL_GetError());
+    }
+
+//    LOG_INFO(logger, "Creating OpenGL context");
+
+    SDL_GLContext openglContext = SDL_GL_CreateContext(sdlWindow);
+
+    if (openglContext == nullptr) throw GraphicsException(std::string("Unable to create OpenGL context: ") + SDL_GetError());
+
+//    LOG_INFO(logger, "OpenGL version: %s", glGetString(GL_VERSION));
+//    LOG_INFO(logger, "OpenGL vendor: %s", glGetString(GL_VENDOR));
+//    LOG_INFO(logger, "OpenGL renderer: %s", glGetString(GL_RENDERER));
+//    LOG_INFO(logger, "OpenGL shading language: %s", glGetString(GL_SHADING_LANGUAGE_VERSION));
+
+    glewExperimental = GL_TRUE; // Needed in core profile
+
+    const GLenum glewErr = glewInit();
+
+    if (glewErr != GLEW_OK)
+    {
+        std::stringstream ss;
+        ss << "Failed to initialize GLEW: " << glewGetErrorString(glewErr);
+        throw GraphicsException(ss.str());
+    }
+
+    std::vector<std::string> availableOpenGlVersions;
+
+    if (GLEW_VERSION_1_3) availableOpenGlVersions.push_back("1.3");
+    if (GLEW_VERSION_1_4) availableOpenGlVersions.push_back("1.4");
+    if (GLEW_VERSION_1_5) availableOpenGlVersions.push_back("1.5");
+    if (GLEW_VERSION_2_0) availableOpenGlVersions.push_back("2.0");
+    if (GLEW_VERSION_2_1) availableOpenGlVersions.push_back("2.1");
+    if (GLEW_VERSION_3_0) availableOpenGlVersions.push_back("3.0");
+    if (GLEW_VERSION_3_1) availableOpenGlVersions.push_back("3.1");
+    if (GLEW_VERSION_3_2) availableOpenGlVersions.push_back("3.2");
+    if (GLEW_VERSION_3_3) availableOpenGlVersions.push_back("3.3");
+    if (GLEW_VERSION_4_0) availableOpenGlVersions.push_back("4.0");
+    if (GLEW_VERSION_4_1) availableOpenGlVersions.push_back("4.1");
+    if (GLEW_VERSION_4_2) availableOpenGlVersions.push_back("4.2");
+    if (GLEW_VERSION_4_3) availableOpenGlVersions.push_back("4.3");
+    if (GLEW_VERSION_4_4) availableOpenGlVersions.push_back("4.4");
+    if (GLEW_VERSION_4_5) availableOpenGlVersions.push_back("4.5");
+    if (GLEW_VERSION_4_6) availableOpenGlVersions.push_back("4.6");
+
+    LOG_INFO(logger, "Available OpenGL versions: %s", boost::algorithm::join(availableOpenGlVersions, ", "));
+
+    GLint numGlExtensions = 0;
+    glGetIntegerv(GL_NUM_EXTENSIONS, &numGlExtensions);
+
+    LOG_INFO(logger, "Found %s OpenGL extension(s)", numGlExtensions);
+
+    std::stringstream ssGlExtensions;
+    for (GLint i = 0; i < numGlExtensions; ++i)
+    {
+        ssGlExtensions << (i > 0 ? " " : "") << glGetStringi(GL_EXTENSIONS, i);
+    }
+
+    LOG_INFO(logger, "OpenGL extension(s): %s", ssGlExtensions.str());
+
+    SDL_GL_DeleteContext(openglContext);
+//    SDL_SetWindowFullscreen(sdlWindow_, 0);
+    SDL_DestroyWindow(sdlWindow);
+
+    SDL_Quit();
+}
+
 void OpenGlRenderer::initialize()
 {
+    checkGlVersions(logger_);
+
 	width_ = properties_->getIntValue(std::string("window.width"), 1024);
 	height_ = properties_->getIntValue(std::string("window.height"), 768);
 
 	LOG_INFO(logger_, "Width and height set to %s x %s", width_, height_);
 
-	if (SDL_Init(SDL_INIT_VIDEO) != 0) throw std::runtime_error(std::string("Unable to initialize SDL: ") + SDL_GetError());
+	if (SDL_Init(SDL_INIT_VIDEO) != 0) throw GraphicsException(std::string("Unable to initialize SDL: ") + SDL_GetError());
 
 	const int glMajorVersion = 3;
 	const int glMinorVersion = 3;
@@ -125,17 +378,23 @@ void OpenGlRenderer::initialize()
 
     LOG_INFO(logger_, "Setting window title to %s", windowTitle);
 
-	uint32 flags = SDL_WINDOW_OPENGL;
+    Uint32 flags = SDL_WINDOW_OPENGL;
 
-	if (properties_->getBoolValue("window.fullscreen", false)) flags |= SDL_WINDOW_FULLSCREEN;
-	if (properties_->getBoolValue("window.resizable", false)) flags |= SDL_WINDOW_RESIZABLE;
-	if (properties_->getBoolValue("window.maximized", false)) flags |= SDL_WINDOW_MAXIMIZED;
+    const bool windowFullscreenFlag = properties_->getBoolValue("window.fullscreen", false);
+    const bool windowResizableFlag = properties_->getBoolValue("window.resizable", false);
+    const bool windowMaximizedFlag = properties_->getBoolValue("window.maximized", false);
 
-    LOG_INFO(logger_, "Creating window using flags %s", flags);
+    if (windowFullscreenFlag) flags |= SDL_WINDOW_FULLSCREEN;
+    if (windowResizableFlag) flags |= SDL_WINDOW_RESIZABLE;
+    if (windowMaximizedFlag) flags |= SDL_WINDOW_MAXIMIZED;
+
+    LOG_INFO(logger_, "Setting window fullscreen: %s", windowFullscreenFlag);
+    LOG_INFO(logger_, "Setting window resizable: %s", windowResizableFlag);
+    LOG_INFO(logger_, "Setting window maximized: %s", windowMaximizedFlag);
 
 	sdlWindow_ = SDL_CreateWindow(windowTitle.c_str(), 50, 50, width_, height_, flags);
 
-	if (sdlWindow_ == nullptr) throw std::runtime_error(std::string("Unable to create window: ") + SDL_GetError());
+	if (sdlWindow_ == nullptr) throw GraphicsException(std::string("Unable to create window: ") + SDL_GetError());
 
     const int numVideoDrivers = SDL_GetNumVideoDrivers();
 
@@ -157,7 +416,7 @@ void OpenGlRenderer::initialize()
 
 	openglContext_ = SDL_GL_CreateContext(sdlWindow_);
 
-	if (openglContext_ == nullptr) throw std::runtime_error(std::string("Unable to create OpenGL context: ") + SDL_GetError());
+	if (openglContext_ == nullptr) throw GraphicsException(std::string("Unable to create OpenGL context: ") + SDL_GetError());
 
     LOG_INFO(logger_, "OpenGL version: %s", glGetString(GL_VERSION));
     LOG_INFO(logger_, "OpenGL vendor: %s", glGetString(GL_VENDOR));
@@ -174,10 +433,20 @@ void OpenGlRenderer::initialize()
     {
         std::stringstream ss;
         ss << "Failed to initialize GLEW: " << glewGetErrorString(glewErr);
-        throw std::runtime_error(ss.str());
+        throw GraphicsException(ss.str());
     }
 
     LOG_INFO(logger_, "GLEW version: %s", glewGetString(GLEW_VERSION));
+
+    const bool windowVSyncFlag = properties_->getBoolValue("window.vsync", false);
+
+    LOG_INFO(logger_, "Enable vsync: %s", windowVSyncFlag);
+
+    if (SDL_GL_SetSwapInterval(windowVSyncFlag ? 1 : 0) < 0)
+    {
+        LOG_WARN(logger_, "Unable to enable vsync: %s", SDL_GetError());
+//        throw GraphicsException(std::string("Unable to enable vsync: ") + SDL_GetError());
+    }
 
     GLint numGlExtensions = 0;
     glGetIntegerv(GL_NUM_EXTENSIONS, &numGlExtensions);
@@ -192,8 +461,18 @@ void OpenGlRenderer::initialize()
 
     LOG_INFO(logger_, "OpenGL extension(s): %s", ssGlExtensions.str());
 
-	const bool vsync = properties_->getBoolValue("window.vsync", false);
-	SDL_GL_SetSwapInterval(vsync ? 1 : 0);
+    if (GLEW_ARB_debug_output)
+    {
+        LOG_INFO(logger_, "Found OpenGL extension ARB_debug_output, enabling debug messages");
+
+        glEnable(GL_DEBUG_OUTPUT);
+
+        glDebugMessageCallbackARB(MessageCallback, nullptr);
+    }
+    else
+    {
+        LOG_INFO(logger_, "Did not find OpenGL extension ARB_debug_output, cannot enable debug messages");
+    }
 
 	SDL_GL_GetDrawableSize(sdlWindow_, reinterpret_cast<int*>(&width_), reinterpret_cast<int*>(&height_));
 
@@ -227,6 +506,8 @@ void OpenGlRenderer::initialize()
 
 void OpenGlRenderer::initializeOpenGlShaderPrograms()
 {
+    LOG_INFO(logger_, "Initializing OpenGL shader programs.");
+
 	auto lineVertexShaderHandle = createVertexShader(loadShaderContents("line.vert"));
 	auto lineFragmentShaderHandle = createFragmentShader(loadShaderContents("line.frag"));
 
@@ -310,6 +591,8 @@ void main()
 
 void OpenGlRenderer::initializeOpenGlBuffers()
 {
+    LOG_INFO(logger_, "Initializing OpenGL buffers.");
+
 	// G-buffer
 	positionTexture_ = Texture2d();
 	positionTexture_.generate(GL_RGB16F, width_, height_, GL_RGB, GL_FLOAT, nullptr);
@@ -444,6 +727,8 @@ void renderQuad()
     glBindVertexArray(quadVAO);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glBindVertexArray(0);
+
+    ASSERT_GL_ERROR();
 }
 
 glm::vec3 direction = glm::vec3(-0.2f, -1.0f, -0.3f);
@@ -467,8 +752,9 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 	glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	glm::mat4 lightProjection, lightView;
-	glm::mat4 lightSpaceMatrix;
+	glm::mat4 lightProjection = glm::mat4(1.0f);
+    glm::mat4 lightView = glm::mat4(1.0f);
+	glm::mat4 lightSpaceMatrix = glm::mat4(1.0f);
 	float near_plane = -10.0f, far_plane = 100.0f;
 	const float lightProjectionSize = 20.0f;
 	lightProjection = glm::ortho(-lightProjectionSize, lightProjectionSize, -lightProjectionSize, lightProjectionSize, near_plane, far_plane);
@@ -588,7 +874,7 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 			glUniform1i(hasBoneAttachmentLocation, r.hasBoneAttachment);
 
 			const int bonesLocation = glGetUniformBlockIndex(deferredLightingGeometryPassShaderProgram, "Bones");
-			ASSERT(bonesLocation >= 0);
+			ICE_ENGINE_ASSERT(bonesLocation >= 0);
 			glBindBufferBase(GL_UNIFORM_BUFFER, bonesLocation, r.ubo.id);
 //			glBindBufferBase(GL_UNIFORM_BUFFER, 0, r.ubo.id);
 
@@ -630,9 +916,9 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 	auto& deferredLightingTerrainGeometryPassShaderProgram = shaderPrograms_[deferredLightingTerrainGeometryPassProgramHandle_];
 	deferredLightingTerrainGeometryPassShaderProgram.use();
 
-	ASSERT(glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "heightMapTexture") >= 0);
-	ASSERT(glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "terrainMapTexture") >= 0);
-	ASSERT(glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "splatMapAlbedoTextures") >= 0);
+	ICE_ENGINE_ASSERT(glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "heightMapTexture") >= 0);
+	ICE_ENGINE_ASSERT(glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "terrainMapTexture") >= 0);
+	ICE_ENGINE_ASSERT(glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "splatMapAlbedoTextures") >= 0);
 
 	glUniform1i(glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "heightMapTexture"), 0);
 	glUniform1i(glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "terrainMapTexture"), 1);
@@ -644,8 +930,8 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 	pvmMatrixLocation = glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "pvmMatrix");
 	//normalMatrixLocation = glGetUniformLocation(deferredLightingTerrainGeometryPassShaderProgram, "normalMatrix");
 
-	ASSERT(modelMatrixLocation >= 0);
-	ASSERT(pvmMatrixLocation >= 0);
+	ICE_ENGINE_ASSERT(modelMatrixLocation >= 0);
+	ICE_ENGINE_ASSERT(pvmMatrixLocation >= 0);
 	//ASSERT(normalMatrixLocation >= 0);
 
 	ASSERT_GL_ERROR();
@@ -729,6 +1015,8 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 	Texture2d::activate(4);
 	shadowMappingDepthMapTexture_.bind();
 
+    ASSERT_GL_ERROR();
+
 	for (const auto& light : renderScene.pointLights)
 	{
 		//glm::vec4 newPos = model_ * glm::vec4(lightPositions_[i], 1.0);
@@ -743,6 +1031,8 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 		const float quadratic = 0.05f;
 		glUniform1f(glGetUniformLocation(lightingShaderProgram, ("lights[" + std::to_string(0) + "].Linear").c_str()), linear);
 		glUniform1f(glGetUniformLocation(lightingShaderProgram, ("lights[" + std::to_string(0) + "].Quadratic").c_str()), quadratic);
+
+        ASSERT_GL_ERROR();
 	}
 
 	//glm::vec4 newPos = model_ * glm::vec4(lightPositions_[i], 1.0);
@@ -752,12 +1042,16 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 	glUniform3fv(glGetUniformLocation(lightingShaderProgram, ("directionalLights[" + std::to_string(0) + "].diffuse").c_str()), 1, &diffuse.x);
 	glUniform3fv(glGetUniformLocation(lightingShaderProgram, ("directionalLights[" + std::to_string(0) + "].specular").c_str()), 1, &specular.x);
 
+    ASSERT_GL_ERROR();
+
 	renderQuad();
 
 	// copy geometry depth buffer to default frame buffers depth buffer
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, frameBuffer_);
 	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 	glBlitFramebuffer(0, 0, width_, height_, 0, 0, width_, height_, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+
+    ASSERT_GL_ERROR();
 
 	FrameBuffer::unbind();
 
@@ -771,8 +1065,8 @@ void OpenGlRenderer::render(const RenderSceneHandle& renderSceneHandle)
 	auto projectionMatrixLocation = glGetUniformLocation(skyboxShaderProgram, "projectionMatrix");
 	auto viewMatrixLocation = glGetUniformLocation(skyboxShaderProgram, "viewMatrix");
 
-	ASSERT(projectionMatrixLocation >= 0);
-	ASSERT(viewMatrixLocation >= 0);
+	ICE_ENGINE_ASSERT(projectionMatrixLocation >= 0);
+	ICE_ENGINE_ASSERT(viewMatrixLocation >= 0);
 
 	ASSERT_GL_ERROR();
 
@@ -942,19 +1236,27 @@ void OpenGlRenderer::endRender()
 
 RenderSceneHandle OpenGlRenderer::createRenderScene()
 {
+    LOG_DEBUG(logger_, "Creating scene.");
+
 	return renderSceneHandles_.create();
 }
 
-void OpenGlRenderer::destroyRenderScene(const RenderSceneHandle& renderSceneHandle)
+void OpenGlRenderer::destroy(const RenderSceneHandle& renderSceneHandle)
 {
+    LOG_DEBUG(logger_, "Destroying scene = %s.", renderSceneHandle);
+
+    ice_engine::detail::checkHandleValidity(renderSceneHandles_, renderSceneHandle);
+
 	renderSceneHandles_.destroy(renderSceneHandle);
 }
 
 CameraHandle OpenGlRenderer::createCamera(const glm::vec3& position, const glm::vec3& lookAt)
 {
+    LOG_DEBUG(logger_, "Creating camera with position = %s and lookAt = %s.", position, lookAt);
+
 	camera_ = Camera();
 	camera_.position = position;
-	camera_.orientation = glm::quat();
+	camera_.orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
 	//camera_.orientation = glm::normalize(camera_.orientation);
 
 	CameraHandle cameraHandle = CameraHandle(0, 1);
@@ -966,20 +1268,31 @@ CameraHandle OpenGlRenderer::createCamera(const glm::vec3& position, const glm::
 
 PointLightHandle OpenGlRenderer::createPointLight(const RenderSceneHandle& renderSceneHandle, const glm::vec3& position)
 {
+    LOG_DEBUG(logger_, "Creating point light for scene %s with position = %s.", renderSceneHandle, position);
+
+    ice_engine::detail::checkHandleValidity(renderSceneHandles_, renderSceneHandle);
+
 	auto& renderScene = renderSceneHandles_[renderSceneHandle];
 	auto handle = renderScene.pointLights.create();
 	auto& light = renderScene.pointLights[handle];
 
 	light.position = position;
 	light.scale = glm::vec3(1.0f, 1.0f, 1.0f);
-	light.orientation = glm::quat();
+	light.orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
 
 	return handle;
 }
 
 void OpenGlRenderer::destroy(const RenderSceneHandle& renderSceneHandle, const PointLightHandle& pointLightHandle)
 {
+    LOG_DEBUG(logger_, "Destroying point light for scene %s with point light = %s.", renderSceneHandle, pointLightHandle);
+
+    ice_engine::detail::checkHandleValidity(renderSceneHandles_, renderSceneHandle);
+
 	auto& renderScene = renderSceneHandles_[renderSceneHandle];
+
+    ice_engine::detail::checkHandleValidity(renderScene.pointLights, pointLightHandle);
+
 	renderScene.pointLights.destroy(pointLightHandle);
 }
 
@@ -991,6 +1304,8 @@ MeshHandle OpenGlRenderer::createStaticMesh(
 	const std::vector<glm::vec2>& textureCoordinates
 )
 {
+    LOG_DEBUG(logger_, "Creating static mesh.");
+
 	auto handle = meshes_.create();
 	auto& vao = meshes_[handle];
 
@@ -1039,12 +1354,12 @@ MeshHandle OpenGlRenderer::createStaticMesh(
 	return handle;
 }
 
-MeshHandle OpenGlRenderer::createStaticMesh(const IMesh* mesh)
+MeshHandle OpenGlRenderer::createStaticMesh(const IMesh& mesh)
 {
-	return createStaticMesh(mesh->vertices(), mesh->indices(), mesh->colors(), mesh->normals(), mesh->textureCoordinates());
+	return createStaticMesh(mesh.vertices(), mesh.indices(), mesh.colors(), mesh.normals(), mesh.textureCoordinates());
 }
 
-MeshHandle OpenGlRenderer::createDynamicMesh(const IMesh* mesh)
+MeshHandle OpenGlRenderer::createDynamicMesh(const IMesh& mesh)
 {
 	/*
 	auto handle = meshes_.create();
@@ -1095,7 +1410,7 @@ MeshHandle OpenGlRenderer::createDynamicMesh(const IMesh* mesh)
 	return MeshHandle();
 }
 
-SkeletonHandle OpenGlRenderer::createSkeleton(const MeshHandle& meshHandle, const ISkeleton* skeleton)
+SkeletonHandle OpenGlRenderer::createSkeleton(const MeshHandle& meshHandle, const ISkeleton& skeleton)
 {
 //	auto handle = skeletons_.create();
 //	auto& ubo = skeletons_[handle];
@@ -1109,26 +1424,30 @@ SkeletonHandle OpenGlRenderer::createSkeleton(const MeshHandle& meshHandle, cons
 //
 //	return handle;
 
+    LOG_DEBUG(logger_, "Creating skeleton with mesh = %s.", meshHandle);
+
+    ice_engine::detail::checkHandleValidity(meshes_, meshHandle);
+
 	auto& vao = meshes_[meshHandle];
 
-	if (vao.vbo[1].id != 0) throw std::runtime_error("Skeleton already exists");
+	if (vao.vbo[1].id != 0) throw InvalidArgumentException("Skeleton already exists");
 
 	glBindVertexArray(vao.id);
 	glGenBuffers(1, &vao.vbo[1].id);
 
-	auto size = skeleton->boneIds().size() * sizeof(glm::ivec4);
-	size += skeleton->boneWeights().size() * sizeof(glm::vec4);
+	auto size = skeleton.boneIds().size() * sizeof(glm::ivec4);
+	size += skeleton.boneWeights().size() * sizeof(glm::vec4);
 
 	glBindBuffer(GL_ARRAY_BUFFER, vao.vbo[1].id);
 	glBufferData(GL_ARRAY_BUFFER, size, nullptr, GL_STATIC_DRAW);
 
     GLintptr offset = 0;
-	glBufferSubData(GL_ARRAY_BUFFER, offset, skeleton->boneIds().size() * sizeof(glm::ivec4), &skeleton->boneIds()[0]);
+	glBufferSubData(GL_ARRAY_BUFFER, offset, skeleton.boneIds().size() * sizeof(glm::ivec4), &skeleton.boneIds()[0]);
 	glVertexAttribIPointer(4, 4, GL_INT, 0, 0);
 	glEnableVertexAttribArray(4);
 
-	offset += static_cast<GLintptr>(skeleton->boneIds().size() * sizeof(glm::vec4));
-	glBufferSubData(GL_ARRAY_BUFFER, offset, skeleton->boneWeights().size() * sizeof(glm::vec4), &skeleton->boneWeights()[0]);
+	offset += static_cast<GLintptr>(skeleton.boneIds().size() * sizeof(glm::vec4));
+	glBufferSubData(GL_ARRAY_BUFFER, offset, skeleton.boneWeights().size() * sizeof(glm::vec4), &skeleton.boneWeights()[0]);
 	glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, 0, (GLvoid*)(offset));
 	glEnableVertexAttribArray(5);
 
@@ -1141,7 +1460,11 @@ SkeletonHandle OpenGlRenderer::createSkeleton(const MeshHandle& meshHandle, cons
 
 void OpenGlRenderer::destroy(const SkeletonHandle& skeletonHandle)
 {
+    LOG_DEBUG(logger_, "Destroying skeleton = %s.", skeletonHandle);
 
+    ice_engine::detail::checkHandleValidity(skeletons_, skeletonHandle);
+
+    // TODO
 }
 
 BonesHandle OpenGlRenderer::createBones(const uint32 maxNumberOfBones)
@@ -1158,7 +1481,9 @@ BonesHandle OpenGlRenderer::createBones(const uint32 maxNumberOfBones)
 //
 //	return handle;
 
-	if (maxNumberOfBones > 100) throw std::runtime_error("cannot have more than 100 bones");
+    LOG_DEBUG(logger_, "Creating bones with maxNumberOfBones = %s.", maxNumberOfBones);
+
+	if (maxNumberOfBones > 100) throw InvalidArgumentException("cannot have more than 100 bones");
 
 	auto handle = bones_.create();
 	auto& ubo = bones_[handle];
@@ -1176,7 +1501,11 @@ BonesHandle OpenGlRenderer::createBones(const uint32 maxNumberOfBones)
 
 void OpenGlRenderer::destroy(const BonesHandle& bonesHandle)
 {
+    LOG_DEBUG(logger_, "Destroying bones = %s.", bonesHandle);
 
+    ice_engine::detail::checkHandleValidity(bones_, bonesHandle);
+
+    // TODO
 }
 
 void OpenGlRenderer::attach(const RenderSceneHandle& renderSceneHandle, const RenderableHandle& renderableHandle, const BonesHandle& bonesHandle)
@@ -1193,7 +1522,15 @@ void OpenGlRenderer::attach(const RenderSceneHandle& renderSceneHandle, const Re
 //
 //	return handle;
 
-	auto& renderScene = renderSceneHandles_[renderSceneHandle];
+    LOG_DEBUG(logger_, "Attaching bones for scene %s and renderable = %s, bones = %s.", renderSceneHandle, renderableHandle, bonesHandle);
+
+    ice_engine::detail::checkHandleValidity(renderSceneHandles_, renderSceneHandle);
+    ice_engine::detail::checkHandleValidity(bones_, bonesHandle);
+
+    auto& renderScene = renderSceneHandles_[renderSceneHandle];
+
+    ice_engine::detail::checkHandleValidity(renderScene.renderables, renderableHandle);
+
 	auto& renderable = renderScene.renderables[renderableHandle];
 	auto& bones = bones_[bonesHandle];
 
@@ -1203,7 +1540,15 @@ void OpenGlRenderer::attach(const RenderSceneHandle& renderSceneHandle, const Re
 
 void OpenGlRenderer::detach(const RenderSceneHandle& renderSceneHandle, const RenderableHandle& renderableHandle, const BonesHandle& bonesHandle)
 {
-	auto& renderScene = renderSceneHandles_[renderSceneHandle];
+    LOG_DEBUG(logger_, "Detaching bones for scene %s and renderable = %s, bones = %s.", renderSceneHandle, renderableHandle, bonesHandle);
+
+    ice_engine::detail::checkHandleValidity(renderSceneHandles_, renderSceneHandle);
+    ice_engine::detail::checkHandleValidity(bones_, bonesHandle);
+
+    auto& renderScene = renderSceneHandles_[renderSceneHandle];
+
+    ice_engine::detail::checkHandleValidity(renderScene.renderables, renderableHandle);
+
 	auto& renderable = renderScene.renderables[renderableHandle];
 
 	renderable.ubo.id = 0;
@@ -1231,7 +1576,15 @@ void OpenGlRenderer::attachBoneAttachment(
 //
 //	return handle;
 
-	auto& renderScene = renderSceneHandles_[renderSceneHandle];
+    LOG_DEBUG(logger_, "Attaching bone attachment for scene %s and renderable = %s, bones = %s.", renderSceneHandle, renderableHandle, bonesHandle);
+
+    ice_engine::detail::checkHandleValidity(renderSceneHandles_, renderSceneHandle);
+    ice_engine::detail::checkHandleValidity(bones_, bonesHandle);
+
+    auto& renderScene = renderSceneHandles_[renderSceneHandle];
+
+    ice_engine::detail::checkHandleValidity(renderScene.renderables, renderableHandle);
+
 	auto& renderable = renderScene.renderables[renderableHandle];
 	auto& bones = bones_[bonesHandle];
 
@@ -1244,25 +1597,31 @@ void OpenGlRenderer::attachBoneAttachment(
 
 void OpenGlRenderer::detachBoneAttachment(const RenderSceneHandle& renderSceneHandle, const RenderableHandle& renderableHandle)
 {
+    LOG_DEBUG(logger_, "Detaching bone attachment for scene %s and renderable = %s.", renderSceneHandle, renderableHandle);
+
+    ice_engine::detail::checkHandleValidity(renderSceneHandles_, renderSceneHandle);
+
 	auto& renderScene = renderSceneHandles_[renderSceneHandle];
+
+    ice_engine::detail::checkHandleValidity(renderScene.renderables, renderableHandle);
+
 	auto& renderable = renderScene.renderables[renderableHandle];
 
-	if (!renderable.hasBones)
-	{
-		renderable.ubo.id = 0;
-	}
+	if (!renderable.hasBones) renderable.ubo.id = 0;
 
-	renderable.hasBoneAttachment = true;
+	renderable.hasBoneAttachment = false;
 }
 
-TextureHandle OpenGlRenderer::createTexture2d(const ITexture* texture)
+TextureHandle OpenGlRenderer::createTexture2d(const ITexture& texture)
 {
+    LOG_DEBUG(logger_, "Creating texture 2d");
+
 	auto handle = texture2ds_.create();
 	auto& texture2d = texture2ds_[handle];
 
-	auto format = getOpenGlImageFormat(texture->image()->format());
+	auto format = getOpenGlImageFormat(texture.image()->format());
 
-	texture2d.generate(format, texture->image()->width(), texture->image()->height(), format, GL_UNSIGNED_BYTE, &texture->image()->data()[0], true);
+	texture2d.generate(format, texture.image()->width(), texture.image()->height(), format, GL_UNSIGNED_BYTE, &texture.image()->data()[0], true);
 	//glGenTextures(1, &texture.id);
 	//glBindTexture(GL_TEXTURE_2D, texture.id);
 	//glTexImage2D(GL_TEXTURE_2D, 0, format, image->width(), image->height(), 0, format, GL_UNSIGNED_BYTE, &image->data()[0]);
@@ -1272,22 +1631,24 @@ TextureHandle OpenGlRenderer::createTexture2d(const ITexture* texture)
 	return handle;
 }
 
-MaterialHandle OpenGlRenderer::createMaterial(const IPbrMaterial* pbrMaterial)
+MaterialHandle OpenGlRenderer::createMaterial(const IPbrMaterial& pbrMaterial)
 {
+    LOG_DEBUG(logger_, "Creating material.");
+
 	auto handle = materials_.create();
 	auto& material = materials_[handle];
 
 	material.albedo = Texture2d();
-	material.albedo.generate(GL_RGBA, pbrMaterial->albedo()->width(), pbrMaterial->albedo()->height(), GL_RGBA, GL_UNSIGNED_BYTE, &pbrMaterial->albedo()->data()[0], true);
+	material.albedo.generate(GL_RGBA, pbrMaterial.albedo()->width(), pbrMaterial.albedo()->height(), GL_RGBA, GL_UNSIGNED_BYTE, &pbrMaterial.albedo()->data()[0], true);
 	material.normal = Texture2d();
-	material.normal.generate(GL_RGBA, pbrMaterial->normal()->width(), pbrMaterial->normal()->height(), GL_RGBA, GL_UNSIGNED_BYTE, &pbrMaterial->normal()->data()[0], true);
+	material.normal.generate(GL_RGBA, pbrMaterial.normal()->width(), pbrMaterial.normal()->height(), GL_RGBA, GL_UNSIGNED_BYTE, &pbrMaterial.normal()->data()[0], true);
 
 	std::vector<byte> metalnessRoughnessAmbientOcclusionData;
-	metalnessRoughnessAmbientOcclusionData.resize(pbrMaterial->albedo()->width()*pbrMaterial->albedo()->height()*4);
+	metalnessRoughnessAmbientOcclusionData.resize(pbrMaterial.albedo()->width()*pbrMaterial.albedo()->height()*4);
 
-	const auto metalness = pbrMaterial->metalness();
-	const auto roughness = pbrMaterial->roughness();
-	const auto ambientOcclusion = pbrMaterial->ambientOcclusion();
+	const auto metalness = pbrMaterial.metalness();
+	const auto roughness = pbrMaterial.roughness();
+	const auto ambientOcclusion = pbrMaterial.ambientOcclusion();
 
 	for (int j=0; j < metalnessRoughnessAmbientOcclusionData.size(); j+=4)
 	{
@@ -1298,63 +1659,65 @@ MaterialHandle OpenGlRenderer::createMaterial(const IPbrMaterial* pbrMaterial)
 	}
 
 	material.metallicRoughnessAmbientOcclusion = Texture2d();
-	material.metallicRoughnessAmbientOcclusion.generate(GL_RGBA, pbrMaterial->albedo()->width(), pbrMaterial->albedo()->height(), GL_RGBA, GL_UNSIGNED_BYTE, &metalnessRoughnessAmbientOcclusionData[0], true);
+	material.metallicRoughnessAmbientOcclusion.generate(GL_RGBA, pbrMaterial.albedo()->width(), pbrMaterial.albedo()->height(), GL_RGBA, GL_UNSIGNED_BYTE, &metalnessRoughnessAmbientOcclusionData[0], true);
 
 	return handle;
 }
 
 TerrainHandle OpenGlRenderer::createStaticTerrain(
-	const IHeightMap* heightMap,
-	const ISplatMap* splatMap,
-	const IDisplacementMap* displacementMap
+        const IHeightMap& heightMap,
+        const ISplatMap& splatMap,
+        const IDisplacementMap& displacementMap
 )
 {
+    LOG_DEBUG(logger_, "Creating static terrain.");
+
 	auto handle = terrains_.create();
 	auto& terrain = terrains_[handle];
 
 	//terrain.vao = meshes_[meshHandle];
 	//terrain.textureHandle = textureHandle;
 
-	terrain.width = heightMap->image()->width();
-	terrain.height = heightMap->image()->height();
+	terrain.width = heightMap.image()->width();
+	terrain.height = heightMap.image()->height();
 
 	{
-//		terrain.textureHandle = createTexture2d(heightMap->image());
+//		terrain.textureHandle = createTexture2d(heightMap.image());
 		terrain.textureHandle = texture2ds_.create();
 		auto& texture = texture2ds_[terrain.textureHandle];
 
-		texture.generate(GL_RGBA,  heightMap->image()->width(),  heightMap->image()->height(), GL_RGBA, GL_UNSIGNED_BYTE, &heightMap->image()->data()[0], true);
+		texture.generate(GL_RGBA,  heightMap.image()->width(),  heightMap.image()->height(), GL_RGBA, GL_UNSIGNED_BYTE, &heightMap.image()->data()[0], true);
 	}
 
-	//terrain.terrainMapTextureHandle = createTexture2d(*splatMap->terrainMap());
+	//terrain.terrainMapTextureHandle = createTexture2d(*splatMap.terrainMap());
 	terrain.terrainMapTextureHandle = texture2ds_.create();
 	auto& texture = texture2ds_[terrain.terrainMapTextureHandle];
 
-	texture.generate(GL_RGBA8UI, splatMap->terrainMap()->width(), splatMap->terrainMap()->height(), GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, &splatMap->terrainMap()->data()[0], true);
+	texture.generate(GL_RGBA8UI, splatMap.terrainMap()->width(), splatMap.terrainMap()->height(), GL_RGBA_INTEGER, GL_UNSIGNED_BYTE, &splatMap.terrainMap()->data()[0], true);
 	texture.bind();
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
 	terrain.splatMapTexture2dArrays[0] = Texture2dArray();
-	terrain.splatMapTexture2dArrays[0].generate(GL_RGBA, splatMap->materialMap()[0]->albedo()->width(), splatMap->materialMap()[0]->albedo()->height(), 256, GL_RGBA, GL_UNSIGNED_BYTE);
+	terrain.splatMapTexture2dArrays[0].generate(GL_RGBA, splatMap.materialMap()[0]->albedo()->width(), splatMap.materialMap()[0]->albedo()->height(), 256, GL_RGBA, GL_UNSIGNED_BYTE);
 	terrain.splatMapTexture2dArrays[0].bind();
-	for (int i=0; i < splatMap->materialMap().size(); ++i)
+	for (int i=0; i < splatMap.materialMap().size(); ++i)
 	{
-		terrain.splatMapTexture2dArrays[0].texSubImage3D(splatMap->materialMap()[i]->albedo()->width(), splatMap->materialMap()[i]->albedo()->height(), i, GL_RGBA, GL_UNSIGNED_BYTE, &splatMap->materialMap()[i]->albedo()->data()[0]);
+		terrain.splatMapTexture2dArrays[0].texSubImage3D(splatMap.materialMap()[i]->albedo()->width(), splatMap.materialMap()[i]->albedo()->height(), i, GL_RGBA, GL_UNSIGNED_BYTE, &splatMap.materialMap()[i]->albedo()->data()[0]);
 	}
 	glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
 
 	terrain.splatMapTexture2dArrays[1] = Texture2dArray();
-	terrain.splatMapTexture2dArrays[1].generate(GL_RGBA, splatMap->materialMap()[0]->normal()->width(), splatMap->materialMap()[0]->normal()->height(), 256, GL_RGBA, GL_UNSIGNED_BYTE);
+	terrain.splatMapTexture2dArrays[1].generate(GL_RGBA, splatMap.materialMap()[0]->normal()->width(), splatMap.materialMap()[0]->normal()->height(), 256, GL_RGBA, GL_UNSIGNED_BYTE);
 	terrain.splatMapTexture2dArrays[1].bind();
-	for (int i=0; i < splatMap->materialMap().size(); ++i)
+	for (int i=0; i < splatMap.materialMap().size(); ++i)
 	{
-		terrain.splatMapTexture2dArrays[1].texSubImage3D(splatMap->materialMap()[i]->normal()->width(), splatMap->materialMap()[i]->normal()->height(), i, GL_RGBA, GL_UNSIGNED_BYTE, &splatMap->materialMap()[i]->normal()->data()[0]);
+		terrain.splatMapTexture2dArrays[1].texSubImage3D(splatMap.materialMap()[i]->normal()->width(), splatMap.materialMap()[i]->normal()->height(), i, GL_RGBA, GL_UNSIGNED_BYTE, &splatMap.materialMap()[i]->normal()->data()[0]);
 	}
 	glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
 
-	const uint32 width = splatMap->materialMap()[0]->albedo()->width();
-	const uint32 height = splatMap->materialMap()[0]->albedo()->height();
+	const uint32 width = splatMap.materialMap()[0]->albedo()->width();
+	const uint32 height = splatMap.materialMap()[0]->albedo()->height();
 
 	std::vector<byte> metalnessRoughnessAmbientOcclusionData;
 	metalnessRoughnessAmbientOcclusionData.resize(width*height*4);
@@ -1362,11 +1725,11 @@ TerrainHandle OpenGlRenderer::createStaticTerrain(
 	terrain.splatMapTexture2dArrays[2] = Texture2dArray();
 	terrain.splatMapTexture2dArrays[2].generate(GL_RGBA, width, height, 256, GL_RGBA, GL_UNSIGNED_BYTE);
 	terrain.splatMapTexture2dArrays[2].bind();
-	for (int i=0; i < splatMap->materialMap().size(); ++i)
+	for (int i=0; i < splatMap.materialMap().size(); ++i)
 	{
-		const auto metalness = splatMap->materialMap()[i]->metalness();
-		const auto roughness = splatMap->materialMap()[i]->roughness();
-		const auto ambientOcclusion = splatMap->materialMap()[i]->ambientOcclusion();
+		const auto metalness = splatMap.materialMap()[i]->metalness();
+		const auto roughness = splatMap.materialMap()[i]->roughness();
+		const auto ambientOcclusion = splatMap.materialMap()[i]->ambientOcclusion();
 
 		for (int j=0; j < metalnessRoughnessAmbientOcclusionData.size(); j+=4)
 		{
@@ -1379,9 +1742,9 @@ TerrainHandle OpenGlRenderer::createStaticTerrain(
 	}
 	glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
 
-	//terrain.splatMapTextureHandles[0] = createTexture2d(*splatMap->materialMap()[0]->albedo());
-	//terrain.splatMapTextureHandles[1] = createTexture2d(*splatMap->materialMap()[1]->albedo());
-	//terrain.splatMapTextureHandles[2] = createTexture2d(*splatMap->materialMap()[2]->albedo());
+	//terrain.splatMapTextureHandles[0] = createTexture2d(*splatMap.materialMap()[0]->albedo());
+	//terrain.splatMapTextureHandles[1] = createTexture2d(*splatMap.materialMap()[1]->albedo());
+	//terrain.splatMapTextureHandles[2] = createTexture2d(*splatMap.materialMap()[2]->albedo());
 
 	std::vector<glm::vec3> vertices;
 	std::vector<uint32> indices;
@@ -1394,11 +1757,19 @@ TerrainHandle OpenGlRenderer::createStaticTerrain(
 }
 void OpenGlRenderer::destroy(const TerrainHandle& terrainHandle)
 {
+    LOG_DEBUG(logger_, "Destroying terrain = %s.", terrainHandle);
+
+    ice_engine::detail::checkHandleValidity(terrains_, terrainHandle);
+
+    // TODO
+
 	// terrains_.destroy(terrainHandle);
 }
 
 SkyboxHandle OpenGlRenderer::createStaticSkybox(const IImage& back, const IImage& down, const IImage& front, const IImage& left, const IImage& right, const IImage& up)
 {
+    LOG_DEBUG(logger_, "Creating static skybox.");
+
 	auto handle = skyboxes_.create();
 	auto& skybox = skyboxes_[handle];
 
@@ -1422,6 +1793,12 @@ SkyboxHandle OpenGlRenderer::createStaticSkybox(const IImage& back, const IImage
 
 void OpenGlRenderer::destroy(const SkyboxHandle& skyboxHandle)
 {
+    LOG_DEBUG(logger_, "Destroying skybox = %s.", skyboxHandle);
+
+//    ice_engine::detail::checkHandleValidity(renderSceneHandles_, renderSceneHandle);
+
+    // TODO
+
 	// const auto& skybox = skyboxes_[skyboxHandle];
 	//
 	// destroy(skybox.meshHandle);
@@ -1431,9 +1808,9 @@ void OpenGlRenderer::destroy(const SkyboxHandle& skyboxHandle)
 
 std::string OpenGlRenderer::loadShaderContents(const std::string& filename) const
 {
-	LOG_DEBUG(logger_, (std::string("Loading shader: ") + filename))
+	LOG_DEBUG(logger_, "Loading shader: %s", filename)
 
-	if (!fileSystem_->exists(filename)) throw std::runtime_error("Shader with filename '" + filename + "' does not exist.");
+	if (!fileSystem_->exists(filename)) throw FileNotFoundException("Shader with filename '" + filename + "' does not exist.");
 
 	auto file = fileSystem_->open(filename, fs::FileFlags::READ | fs::FileFlags::BINARY);
 	return file->readAll();
@@ -1441,25 +1818,25 @@ std::string OpenGlRenderer::loadShaderContents(const std::string& filename) cons
 
 VertexShaderHandle OpenGlRenderer::createVertexShader(const std::string& data)
 {
-	LOG_DEBUG(logger_, "Creating vertex shader from data: " + data);
+	LOG_DEBUG(logger_, "Creating vertex shader from data: %s", data);
 	return vertexShaders_.create( VertexShader(data) );
 }
 
 FragmentShaderHandle OpenGlRenderer::createFragmentShader(const std::string& data)
 {
-	LOG_DEBUG(logger_, "Creating fragment shader from data: " + data);
+	LOG_DEBUG(logger_, "Creating fragment shader from data: %s", data);
 	return fragmentShaders_.create( FragmentShader(data) );
 }
 
 TessellationControlShaderHandle OpenGlRenderer::createTessellationControlShader(const std::string& data)
 {
-	LOG_DEBUG(logger_, "Creating tessellation control shader from data: " + data);
+	LOG_DEBUG(logger_, "Creating tessellation control shader from data: %s", data);
 	return tessellationControlShaders_.create( TessellationControlShader(data) );
 }
 
 TessellationEvaluationShaderHandle OpenGlRenderer::createTessellationEvaluationShader(const std::string& data)
 {
-	LOG_DEBUG(logger_, "Creating tessellation evaluation shader from data: " + data);
+	LOG_DEBUG(logger_, "Creating tessellation evaluation shader from data: %s", data);
 	return tessellationEvaluationShaders_.create( TessellationEvaluationShader(data) );
 }
 
@@ -1483,48 +1860,49 @@ bool OpenGlRenderer::valid(const TessellationEvaluationShaderHandle& shaderHandl
 	return tessellationEvaluationShaders_.valid(shaderHandle);
 }
 
-void OpenGlRenderer::destroyShader(const VertexShaderHandle& shaderHandle)
+void OpenGlRenderer::destroy(const VertexShaderHandle& shaderHandle)
 {
-	if (!vertexShaders_.valid(shaderHandle))
-	{
-		throw std::runtime_error("Invalid shader handle");
-	}
+    LOG_DEBUG(logger_, "Destroying shader = %s.", shaderHandle);
+
+    ice_engine::detail::checkHandleValidity(vertexShaders_, shaderHandle);
 
 	vertexShaders_.destroy(shaderHandle);
 }
 
-void OpenGlRenderer::destroyShader(const FragmentShaderHandle& shaderHandle)
+void OpenGlRenderer::destroy(const FragmentShaderHandle& shaderHandle)
 {
-	if (!fragmentShaders_.valid(shaderHandle))
-	{
-		throw std::runtime_error("Invalid shader handle");
-	}
+    LOG_DEBUG(logger_, "Destroying shader = %s.", shaderHandle);
+
+    ice_engine::detail::checkHandleValidity(fragmentShaders_, shaderHandle);
 
 	fragmentShaders_.destroy(shaderHandle);
 }
 
-void OpenGlRenderer::destroyShader(const TessellationControlShaderHandle& shaderHandle)
+void OpenGlRenderer::destroy(const TessellationControlShaderHandle& shaderHandle)
 {
-	if (!tessellationControlShaders_.valid(shaderHandle))
-	{
-		throw std::runtime_error("Invalid shader handle");
-	}
+    LOG_DEBUG(logger_, "Destroying shader = %s.", shaderHandle);
+
+    ice_engine::detail::checkHandleValidity(tessellationControlShaders_, shaderHandle);
 
 	tessellationControlShaders_.destroy(shaderHandle);
 }
 
-void OpenGlRenderer::destroyShader(const TessellationEvaluationShaderHandle& shaderHandle)
+void OpenGlRenderer::destroy(const TessellationEvaluationShaderHandle& shaderHandle)
 {
-	if (!tessellationEvaluationShaders_.valid(shaderHandle))
-	{
-		throw std::runtime_error("Invalid shader handle");
-	}
+    LOG_DEBUG(logger_, "Destroying shader = %s.", shaderHandle);
+
+    ice_engine::detail::checkHandleValidity(tessellationEvaluationShaders_, shaderHandle);
 
 	tessellationEvaluationShaders_.destroy(shaderHandle);
 }
 
 ShaderProgramHandle OpenGlRenderer::createShaderProgram(const VertexShaderHandle& vertexShaderHandle, const FragmentShaderHandle& fragmentShaderHandle)
 {
+    LOG_DEBUG(logger_, "Creating shader program with vertex shader = %s, fragment shader = %s.", vertexShaderHandle, fragmentShaderHandle);
+
+    ice_engine::detail::checkHandleValidity(vertexShaders_, vertexShaderHandle);
+    ice_engine::detail::checkHandleValidity(fragmentShaders_, fragmentShaderHandle);
+
 	const auto& vertexShader = vertexShaders_[vertexShaderHandle];
 	const auto& fragmentShader = fragmentShaders_[fragmentShaderHandle];
 
@@ -1538,6 +1916,13 @@ ShaderProgramHandle OpenGlRenderer::createShaderProgram(
 	const FragmentShaderHandle& fragmentShaderHandle
 )
 {
+    LOG_DEBUG(logger_, "Creating shader program with vertex shader = %s, tessellation control shader = %s, tessellation evaluation shader = %s, fragment shader = %s.", vertexShaderHandle, tessellationControlShaderHandle, tessellationEvaluationShaderHandle, fragmentShaderHandle);
+
+    ice_engine::detail::checkHandleValidity(vertexShaders_, vertexShaderHandle);
+    ice_engine::detail::checkHandleValidity(tessellationControlShaders_, tessellationControlShaderHandle);
+    ice_engine::detail::checkHandleValidity(tessellationEvaluationShaders_, tessellationEvaluationShaderHandle);
+    ice_engine::detail::checkHandleValidity(fragmentShaders_, fragmentShaderHandle);
+
 	const auto& vertexShader = vertexShaders_[vertexShaderHandle];
 	const auto& tessellationControlShader = tessellationControlShaders_[tessellationControlShaderHandle];
 	const auto& tessellationEvaluationShader = tessellationEvaluationShaders_[tessellationEvaluationShaderHandle];
@@ -1551,12 +1936,11 @@ bool OpenGlRenderer::valid(const ShaderProgramHandle& shaderProgramHandle) const
 	return shaderPrograms_.valid(shaderProgramHandle);
 }
 
-void OpenGlRenderer::destroyShaderProgram(const ShaderProgramHandle& shaderProgramHandle)
+void OpenGlRenderer::destroy(const ShaderProgramHandle& shaderProgramHandle)
 {
-	if (!shaderPrograms_.valid(shaderProgramHandle))
-	{
-		throw std::runtime_error("Invalid shader program handle");
-	}
+    LOG_DEBUG(logger_, "Creating shader program = %s.", shaderProgramHandle);
+
+    ice_engine::detail::checkHandleValidity(shaderPrograms_, shaderProgramHandle);
 
 	shaderPrograms_.destroy(shaderProgramHandle);
 }
@@ -1636,7 +2020,7 @@ TerrainRenderableHandle OpenGlRenderer::createTerrainRenderable(
 
 	terrainRenderable.graphicsData.position = glm::vec3(0.0f, 0.0f, 0.0f) + glm::vec3(-(float32)terrain.width/2.0f, 0.0f, -(float32)terrain.height/2.0f);
 	terrainRenderable.graphicsData.scale = glm::vec3(1.0f, 1.0f, 1.0f);
-	terrainRenderable.graphicsData.orientation = glm::quat();
+	terrainRenderable.graphicsData.orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
 
 	return handle;
 }
@@ -1661,7 +2045,7 @@ SkyboxRenderableHandle OpenGlRenderer::createSkyboxRenderable(const RenderSceneH
 	// skyboxRenderable.graphicsData.position = glm::vec3(0.0f, 0.0f, 0.0f) + glm::vec3(-(float32)skybox.width/2.0f, 0.0f, -(float32)skybox.height/2.0f);
 	skyboxRenderable.graphicsData.position = glm::vec3();
 	skyboxRenderable.graphicsData.scale = glm::vec3(1.0f, 1.0f, 1.0f);
-	skyboxRenderable.graphicsData.orientation = glm::quat();
+	skyboxRenderable.graphicsData.orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
 
 	return handle;
 }
@@ -1685,8 +2069,7 @@ void OpenGlRenderer::rotate(const CameraHandle& cameraHandle, const glm::quat& q
 			break;
 
 		default:
-			std::string message = std::string("Invalid TransformSpace type.");
-			throw std::runtime_error(message);
+			throw InvalidArgumentException("Invalid TransformSpace type.");
 	}
 }
 
@@ -1705,8 +2088,7 @@ void OpenGlRenderer::rotate(const RenderSceneHandle& renderSceneHandle, const Re
 			break;
 
 		default:
-			std::string message = std::string("Invalid TransformSpace type.");
-			throw std::runtime_error(message);
+			throw InvalidArgumentException("Invalid TransformSpace type.");
 	}
 }
 
@@ -1723,8 +2105,7 @@ void OpenGlRenderer::rotate(const CameraHandle& cameraHandle, const float32 degr
 			break;
 
 		default:
-			std::string message = std::string("Invalid TransformSpace type.");
-			throw std::runtime_error(message);
+			throw InvalidArgumentException("Invalid TransformSpace type.");
 	}
 }
 
@@ -1743,8 +2124,7 @@ void OpenGlRenderer::rotate(const RenderSceneHandle& renderSceneHandle, const Re
 			break;
 
 		default:
-			std::string message = std::string("Invalid TransformSpace type.");
-			throw std::runtime_error(message);
+			throw InvalidArgumentException("Invalid TransformSpace type.");
 	}
 }
 
@@ -1959,17 +2339,20 @@ void OpenGlRenderer::update(
 
 void OpenGlRenderer::setMouseRelativeMode(const bool enabled)
 {
+    LOG_DEBUG(logger_, "Setting mouse relative mode enabled = %s.", enabled);
+
 	auto result = SDL_SetRelativeMouseMode(static_cast<SDL_bool>(enabled));
 
 	if (result != 0)
 	{
-		auto message = std::string("Unable to set relative mouse mode: ") + SDL_GetError();
-		throw std::runtime_error(message);
+		throw RuntimeException(std::string("Unable to set relative mouse mode: ") + SDL_GetError());
 	}
 }
 
 void OpenGlRenderer::setWindowGrab(const bool enabled)
 {
+    LOG_DEBUG(logger_, "Setting grab window enabled = %s.", enabled);
+
 	SDL_SetWindowGrab(sdlWindow_, static_cast<SDL_bool>(enabled));
 }
 
@@ -1980,13 +2363,14 @@ bool OpenGlRenderer::cursorVisible() const
 
 void OpenGlRenderer::setCursorVisible(const bool visible)
 {
+    LOG_DEBUG(logger_, "Setting cursor visible = %s.", visible);
+
 	auto toggle = (visible ? SDL_ENABLE : SDL_DISABLE);
 	auto result = SDL_ShowCursor(toggle);
 
 	if (result < 0)
 	{
-		auto message = std::string("Unable to set mouse cursor visible\\invisible: ") + SDL_GetError();
-		throw std::runtime_error(message);
+		throw RuntimeException(std::string("Unable to set mouse cursor visible\\invisible: ") + SDL_GetError());
 	}
 }
 
@@ -2015,10 +2399,7 @@ void OpenGlRenderer::processEvents()
 
 void OpenGlRenderer::handleEvent(const Event& event)
 {
-	for ( auto it : eventListeners_ )
-	{
-		it->processEvent(event);
-	}
+	for (auto it : eventListeners_) it->processEvent(event);
 }
 
 Event OpenGlRenderer::convertSdlEvent(const SDL_Event& event)
@@ -3157,22 +3538,132 @@ uint16 OpenGlRenderer::convertSdlKeymod(const uint16 sdlKeymod)
 
 void OpenGlRenderer::addEventListener(IEventListener* eventListener)
 {
-	if (eventListener == nullptr)
-	{
-		throw std::invalid_argument("IEventListener cannot be null.");
-	}
+    LOG_DEBUG(logger_, "Adding event listener.");
+
+	if (eventListener == nullptr) throw std::invalid_argument("IEventListener cannot be null.");
 
 	eventListeners_.push_back(eventListener);
 }
 
 void OpenGlRenderer::removeEventListener(IEventListener* eventListener)
 {
+    LOG_DEBUG(logger_, "Removing event listener.");
+
 	auto it = std::find(eventListeners_.begin(), eventListeners_.end(), eventListener);
 
-	if (it != eventListeners_.end())
-	{
-		eventListeners_.erase( it );
-	}
+	if (it != eventListeners_.end()) eventListeners_.erase(it);
+}
+
+bool OpenGlRenderer::valid(const RenderSceneHandle& renderSceneHandle) const
+{
+    return renderSceneHandles_.valid(renderSceneHandle);
+}
+
+bool OpenGlRenderer::valid(const CameraHandle& cameraHandle) const
+{
+    return true;
+}
+
+void OpenGlRenderer::destroy(const CameraHandle& cameraHandle)
+{
+    LOG_DEBUG(logger_, "Destroying camera = %s.", cameraHandle);
+
+//    ice_engine::detail::checkHandleValidity(meshes_, cameraHandle);
+
+    // TODO
+}
+
+bool OpenGlRenderer::valid(const RenderSceneHandle& renderSceneHandle, const PointLightHandle& pointLightHandle) const
+{
+    if (!valid(renderSceneHandle)) return false;
+
+    return renderSceneHandles_[renderSceneHandle].pointLights.valid(pointLightHandle);
+
+}
+
+bool OpenGlRenderer::valid(const MeshHandle& meshHandle) const
+{
+    return meshes_.valid(meshHandle);
+}
+
+void OpenGlRenderer::destroy(const MeshHandle& meshHandle)
+{
+    LOG_DEBUG(logger_, "Destroying mesh = %s.", meshHandle);
+
+    ice_engine::detail::checkHandleValidity(meshes_, meshHandle);
+
+    // TODO
+}
+
+bool OpenGlRenderer::valid(const SkeletonHandle& skeletonHandle) const
+{
+    return skeletons_.valid(skeletonHandle);
+}
+
+bool OpenGlRenderer::valid(const BonesHandle& bonesHandle) const
+{
+    return bones_.valid(bonesHandle);
+}
+
+bool OpenGlRenderer::valid(const TextureHandle& textureHandle) const
+{
+    return texture2ds_.valid(textureHandle);
+}
+
+void OpenGlRenderer::destroy(const TextureHandle& textureHandle)
+{
+    LOG_DEBUG(logger_, "Destroying texture = %s.", textureHandle);
+
+    ice_engine::detail::checkHandleValidity(texture2ds_, textureHandle);
+
+    // TODO
+}
+
+bool OpenGlRenderer::valid(const MaterialHandle& materialHandle) const
+{
+    return materials_.valid(materialHandle);
+}
+
+void OpenGlRenderer::destroy(const MaterialHandle& materialHandle)
+{
+    LOG_DEBUG(logger_, "Destroying material = %s.", materialHandle);
+
+    ice_engine::detail::checkHandleValidity(materials_, materialHandle);
+
+    // TODO
+}
+
+bool OpenGlRenderer::valid(const TerrainHandle& terrainHandle) const
+{
+    return terrains_.valid(terrainHandle);
+}
+
+bool OpenGlRenderer::valid(const SkyboxHandle& skyboxHandle) const
+{
+    return skyboxes_.valid(skyboxHandle);
+}
+
+bool OpenGlRenderer::valid(const RenderSceneHandle& renderSceneHandle, const RenderableHandle& renderableHandle) const
+{
+    if (!valid(renderSceneHandle)) return false;
+
+    return renderSceneHandles_[renderSceneHandle].renderables.valid(renderableHandle);
+}
+
+bool OpenGlRenderer::valid(const RenderSceneHandle& renderSceneHandle,
+                           const TerrainRenderableHandle& terrainRenderableHandle) const
+{
+    if (!valid(renderSceneHandle)) return false;
+
+    return renderSceneHandles_[renderSceneHandle].terrain.valid(terrainRenderableHandle);
+}
+
+bool OpenGlRenderer::valid(const RenderSceneHandle& renderSceneHandle,
+                           const SkyboxRenderableHandle& skyboxRenderableHandle) const
+{
+    if (!valid(renderSceneHandle)) return false;
+
+    return renderSceneHandles_[renderSceneHandle].skyboxes.valid(skyboxRenderableHandle);
 }
 
 }

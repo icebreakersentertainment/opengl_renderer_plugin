@@ -29,7 +29,7 @@ out vec3 Normal;
 
 void main()
 {
-	vec4 tempPosition = vec4(position, 1.0);
+	vec4 tempModelSpacePosition = vec4(position, 1.0);
 	
 	if (hasBones)
 	{
@@ -43,7 +43,7 @@ void main()
 		//boneTransform = tempM;
 	
 		// This is for animating the model
-		tempPosition = boneTransform * vec4(position, 1.0);
+		tempModelSpacePosition = boneTransform * vec4(position, 1.0);
 	}
 	if (hasBoneAttachment)
 	{
@@ -52,11 +52,11 @@ void main()
 		boneTransform     += bones[ boneAttachmentIds[2] ] * boneAttachmentWeights[2];
 		boneTransform     += bones[ boneAttachmentIds[3] ] * boneAttachmentWeights[3];
 		
-		tempPosition = boneTransform * vec4(position, 1.0);
+		tempModelSpacePosition = boneTransform * vec4(position, 1.0);
 	}
 
 //	vec4 worldPos = modelMatrix * vec4(position, 1.0);
-    vec4 worldPos = modelMatrix * tempPosition;
+    vec4 worldPos = modelMatrix * tempModelSpacePosition;
     FragPos = worldPos.xyz; 
     TexCoords = textureCoordinate;
     
@@ -64,7 +64,7 @@ void main()
     Normal = normalMatrix2 * normal;
     
 //    gl_Position = pvmMatrix * vec4(position, 1.0);
-    gl_Position = pvmMatrix * tempPosition;
+    gl_Position = pvmMatrix * tempModelSpacePosition;
 
     //gl_Position = projection * view * worldPos;
     
